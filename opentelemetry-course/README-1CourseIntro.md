@@ -12,22 +12,22 @@
 
 可靠性管理的四個概念：
 
-| 名稱                            | 說明                                          |
-| ----------------------------- | ------------------------------------------- |
-| SLI — Service Level Indicator | 衡量服務品質的**實際指標**，例如成功率 99.95%                    |
-| SLO — Service Level Objective | 內部設定的服務品質**目標**，例如成功率 ≥ 99.9%                   |
-| SLA — Service Level Agreement | 與**客戶約定的服務水準**及違約責任                             |
-| Error Budget                  | 允許服務未達到目標的容錯空間，例如 SLO 99.9% 代表允許 0.1% 的失敗比例 |
+| 名稱                           | 說明                                                                  |
+| ------------------------------ | --------------------------------------------------------------------- |
+| SLI — Service Level Indicator | 衡量服務品質的**實際指標**，例如成功率 99.95%                   |
+| SLO — Service Level Objective | 內部設定的服務品質**目標**，例如成功率 ≥ 99.9%                 |
+| SLA — Service Level Agreement | 與**客戶約定的服務水準**及違約責任                              |
+| Error Budget                   | 允許服務未達到目標的容錯空間，例如 SLO 99.9% 代表允許 0.1% 的失敗比例 |
 
 ## 3. Four Golden Signals
 
 Google SRE 提出的四個黃金監控訊號：
 
-| Signal     | 中文  | 監控範例                              |
-| ---------- | --- | --------------------------------- |
-| Latency    | 延遲  | API Response Time、P95/P99         |
-| Traffic    | 流量  | Requests per Second               |
-| Errors     | 錯誤  | HTTP 5xx、Failed Transactions      |
+| Signal     | 中文   | 監控範例                               |
+| ---------- | ------ | -------------------------------------- |
+| Latency    | 延遲   | API Response Time、P95/P99             |
+| Traffic    | 流量   | Requests per Second                    |
+| Errors     | 錯誤   | HTTP 5xx、Failed Transactions          |
 | Saturation | 飽和度 | CPU、Memory、DB Connection Pool 使用率 |
 
 ## 與 Langfuse 的關係
@@ -43,19 +43,20 @@ Google SRE 提出的四個黃金監控訊號：
 重點：Langfuse 主要負責 **LLM Observability**；**Prometheus + Grafana + OpenTelemetry** 則可以補足**整個應用程式**與**基礎設施**的 Observability。
 
 ---
+
 # Deploying the Observability Stack（部署可觀測性技術架構）
 
 > 主要使用 Grafana 生態系統的三個後端元件：Prometheus、Loki、Tempo，再透過 Grafana UI 統一呈現。
 
 ## 1. Observability Stack 核心元件
 
-| 元件            | 主要用途                                        | 負責的訊號           |
-| ------------- | ------------------------------------------- | --------------- |
-| Prometheus    | 收集及儲存 CPU、Memory、API Latency、Error Rate 等指標 | Metrics         |
-| Loki          | 集中儲存及查詢 Application Logs                    | Logs            |
-| Tempo         | **儲存分散式**追蹤資料，分析**跨服務**的 Request Flow               | Traces          |
-| Grafana       | 統一查詢、視覺化、Dashboard 和 Alerting               | All Three       |
-| OpenTelemetry | 為應用程式產生及收集 Metrics、Logs、Traces              | Instrumentation |
+| 元件          | 主要用途                                                          | 負責的訊號      |
+| ------------- | ----------------------------------------------------------------- | --------------- |
+| Prometheus    | 收集及儲存 CPU、Memory、API Latency、Error Rate 等指標            | Metrics         |
+| Loki          | 集中儲存及查詢 Application Logs                                   | Logs            |
+| Tempo         | **儲存分散式**追蹤資料，分析**跨服務**的 Request Flow | Traces          |
+| Grafana       | 統一查詢、視覺化、Dashboard 和 Alerting                           | All Three       |
+| OpenTelemetry | 為應用程式產生及收集 Metrics、Logs、Traces                        | Instrumentation |
 
 ## 2. Observability Stack 架構
 
@@ -110,6 +111,7 @@ flowchart TB
     style C fill:#49331A,stroke:#F59E0B,color:#fff
     style D fill:#38244D,stroke:#A78BFA,color:#fff
 ```
+
 > Angular / Vue Frontend → API Gateway / Open APIs → Node.js / Java / Python Microservices → Database.
 
 ## 3. Distributed Sample Application 是甚麼？
@@ -130,16 +132,16 @@ flowchart TB
 
 ## 4. 與 Langfuse 有甚麼不同？
 
-| 比較                     | Grafana Observability Stack             | Langfuse                   |
+| 比較                   | Grafana Observability Stack             | Langfuse                   |
 | ---------------------- | --------------------------------------- | -------------------------- |
-| 主要目標                   | Application / Infrastructure Monitoring | LLM Application Monitoring |
-| API Latency            | 強                                       | 支援 LLM 呼叫延遲                |
-| CPU / Memory           | 強                                       | 非主要功能                      |
+| 主要目標               | Application / Infrastructure Monitoring | LLM Application Monitoring |
+| API Latency            | 強                                      | 支援 LLM 呼叫延遲          |
+| CPU / Memory           | 強                                      | 非主要功能                 |
 | Distributed Tracing    | Tempo                                   | LLM Tracing                |
-| Token Usage / Cost     | 需要自訂 Metrics                            | 原生支援                       |
-| Prompt / Response      | 需要自訂                                    | 原生支援                       |
-| LLM Quality Evaluation | 需要額外工具                                  | 支援 Scores / Evaluations    |
-| RAG / Agent Debugging  | 基礎服務追蹤                                  | 專門支援                       |
+| Token Usage / Cost     | 需要自訂 Metrics                        | 原生支援                   |
+| Prompt / Response      | 需要自訂                                | 原生支援                   |
+| LLM Quality Evaluation | 需要額外工具                            | 支援 Scores / Evaluations  |
+| RAG / Agent Debugging  | 基礎服務追蹤                            | 專門支援                   |
 
 建議：兩套可以一起使用，而不是互相取代。
 
@@ -165,21 +167,21 @@ flowchart TB
 
 ## 1. OpenTelemetry 核心元件
 
-| Component      | 作用                                         |
-| -------------- | ------------------------------------------ |
-| OTel APIs      | **定義**如何建立 Spans、Metrics 等 Telemetry 訊號        |
-| OTel SDKs      | 實際產生、處理及匯出 Telemetry Data                  |
+| Component      | 作用                                                    |
+| -------------- | ------------------------------------------------------- |
+| OTel APIs      | **定義**如何建立 Spans、Metrics 等 Telemetry 訊號 |
+| OTel SDKs      | 實際產生、處理及匯出 Telemetry Data                     |
 | OTel Collector | 接收、處理及轉送資料至不同 Observability Backends       |
-| OTLP           | OpenTelemetry Protocol，用來傳輸 Telemetry Data |
+| OTLP           | OpenTelemetry Protocol，用來傳輸 Telemetry Data         |
 
 ## 2. Automatic vs Manual Instrumentation
 
-|       | Automatic                        | Manual                              |
-| ----- | -------------------------------- | ----------------------------------- |
-| 方式    | 使用 Agent 或 Framework Integration | 開發人員自行加入程式碼                         |
-| 程式碼修改 | **通常不需要或很少**                         | 需要                                  |
-| 適用情境  | **HTTP、Database、Framework 呼叫**       | **Business Transactions**、自訂邏輯          |
-| 範例    | 自動追蹤 Java Spring Boot API        | 手動追蹤 LC Issuance、Payment Processing |
+|            | Automatic                                | Manual                                    |
+| ---------- | ---------------------------------------- | ----------------------------------------- |
+| 方式       | 使用 Agent 或 Framework Integration      | 開發人員自行加入程式碼                    |
+| 程式碼修改 | **通常不需要或很少**               | 需要                                      |
+| 適用情境   | **HTTP、Database、Framework 呼叫** | **Business Transactions**、自訂邏輯 |
+| 範例       | 自動追蹤 Java Spring Boot API            | 手動追蹤 LC Issuance、Payment Processing  |
 
 以銀行 Microservices 為例，自動追蹤可以發現 API 或 Database 延遲；手動追蹤則可以知道一筆 LC Issuance 經過哪些業務處理階段。
 
@@ -189,8 +191,8 @@ flowchart TB
 
 例如：
 
-| Attribute                   | 範例              |
-| --------------------------- | --------------- |
+| Attribute                     | 範例            |
+| ----------------------------- | --------------- |
 | `http.request.method`       | POST            |
 | `http.response.status_code` | 200             |
 | `service.name`              | payment-service |
@@ -202,8 +204,8 @@ flowchart TB
 
 假設三個 Microservices 都記錄 API 回應時間：
 
-| Microservice | 原始欄位            | 意義       |
-| ------------ | --------------- | -------- |
+| Microservice | 原始欄位          | 意義         |
+| ------------ | ----------------- | ------------ |
 | Java         | `response_time` | API 回應時間 |
 | Python       | `latency`       | API 回應時間 |
 | Node.js      | `duration_ms`   | API 回應時間 |
@@ -215,17 +217,18 @@ flowchart TB
 - 例如，HTTP Server Request Duration 可以統一使用 `http.server.request.duration` 作為 Metric 名稱，單位為秒（seconds）。 這樣 Grafana 就能更容易跨 Java、Python、Node.js Microservices 比較 API 效能。
 
 ---
+
 # Instrumenting Single Services（單一服務的監控埋點）
 
 > 主要說明如何使用 OpenTelemetry（OTel）收集單一服務的 Metrics、Logs、Traces，並透過 Grafana 進行分析。
 
 ## 1. 三個核心概念
 
-| Concept               | 中文說明                     | 主要用途                                        |
-| --------------------- | ------------------------ | ------------------------------------------- |
-| OTel Collector        | 集中式、廠商中立的 Telemetry 資料管線 | 接收、處理及轉送監控資料                                |
-| Instrumentation       | 監控埋點                     | 讓 Frontend 或 Backend 產生 Metrics、Traces、Logs |
-| Log-Trace Correlation | 日誌與追蹤關聯                  | 在 **Grafana** 中透過 **Trace ID** 找到相關 Logs            |
+| Concept               | 中文說明                              | 主要用途                                                     |
+| --------------------- | ------------------------------------- | ------------------------------------------------------------ |
+| OTel Collector        | 集中式、廠商中立的 Telemetry 資料管線 | 接收、處理及轉送監控資料                                     |
+| Instrumentation       | 監控埋點                              | 讓 Frontend 或 Backend 產生 Metrics、Traces、Logs            |
+| Log-Trace Correlation | 日誌與追蹤關聯                        | 在 **Grafana** 中透過 **Trace ID** 找到相關 Logs |
 
 > Log-Trace Correlation in Grafana via Environment-driven Configuration（環境變數配置）
 
@@ -275,14 +278,14 @@ flowchart TB
 
 ### Grafana Tempo — Trace
 
-- **Total Duration:** 3.2s 
+- **Total Duration:** 3.2s
 - **Trace ID:** `abc123`
 
-| Operation | Duration | Visualization |
-|---|---:|---|
-| Frontend HTTP Request | 80ms | 🟦 ██ |
-| Payment API | 120ms | 🟦 ███ |
-| Database Query | 3,000ms | 🟧 ████████████████████ |
+| Operation             | Duration | Visualization                               |
+| --------------------- | -------: | ------------------------------------------- |
+| Frontend HTTP Request |     80ms | 🟦 ██                                     |
+| Payment API           |    120ms | 🟦 ███                                   |
+| Database Query        |  3,000ms | 🟧 ████████████████████ |
 
 > 透過同一個 `trace_id`，Grafana 可以從 Tempo 的 Trace 跳到 Loki 查詢相關 Logs，讓開發人員快速找到問題原因。
 
@@ -312,17 +315,18 @@ OTEL_TRACES_SAMPLER_ARG=0.1
 對你的 Angular / Vue + Java / Python / Node.js Microservices 架構而言，建議 Frontend 和 Backend 都加入 Instrumentation，才能更完整地追蹤使用者操作到資料庫處理的整個流程。
 
 ---
+
 # Instrumenting Distributed Systems（分散式系統監控埋點）
 
 > 重點是如何使用 OpenTelemetry 追蹤跨 Microservices、非同步 Queue 和背景 Worker 的完整執行流程。
 
 ## 1. 三個核心概念
 
-| Concept                                                   | 中文說明                     | 主要用途                                   |
-| --------------------------------------------------------- | ------------------------ | -------------------------------------- |
-| Full Signal Coverage                                      | 完整監控 Metrics、Logs、Traces | 監控 Python Worker 的運作、效能及錯誤             |
-| Distributed Context Propagation                           | 分散式追蹤上下文傳遞               | 跨 API、Redis Queue、Worker 保持相同 Trace ID |
-| Custom Metrics, Spans, Redis Exporter, Structured Logging | 自訂指標、追蹤區段、Redis 監控及結構化日誌 | 深入分析業務流程與基礎設施問題                        |
+| Concept                                                   | 中文說明                                   | 主要用途                                      |
+| --------------------------------------------------------- | ------------------------------------------ | --------------------------------------------- |
+| Full Signal Coverage                                      | 完整監控 Metrics、Logs、Traces             | 監控 Python Worker 的運作、效能及錯誤         |
+| Distributed Context Propagation                           | 分散式追蹤上下文傳遞                       | 跨 API、Redis Queue、Worker 保持相同 Trace ID |
+| Custom Metrics, Spans, Redis Exporter, Structured Logging | 自訂指標、追蹤區段、Redis 監控及結構化日誌 | 深入分析業務流程與基礎設施問題                |
 
 ## 2. Distributed Tracing 架構
 
@@ -366,8 +370,8 @@ Redis Queue 也可以由 RabbitMQ、Kafka 等 Message Broker 取代。
 
 例如：
 
-| Component           | Trace ID | Span ID    |
-| ------------------- | -------- | ---------- |
+| Component           | Trace ID   | Span ID      |
+| ------------------- | ---------- | ------------ |
 | Payment API         | `abc123` | `span-001` |
 | Redis Queue Publish | `abc123` | `span-002` |
 | Python Worker       | `abc123` | `span-003` |
@@ -379,12 +383,12 @@ Redis Queue 也可以由 RabbitMQ、Kafka 等 Message Broker 取代。
 
 ## 4. Custom Metrics、Spans 與 Structured Logging
 
-| 功能                 | 實際例子                                                                   |
-| ------------------ | ---------------------------------------------------------------------- |
-| Custom Metrics     | `payment_processed_total`、`payment_failed_total`                       |
-| Custom Spans       | `validate_payment`、`execute_payment`、`update_balance`                  |
+| 功能               | 實際例子                                                                            |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| Custom Metrics     | `payment_processed_total`、`payment_failed_total`                               |
+| Custom Spans       | `validate_payment`、`execute_payment`、`update_balance`                       |
 | Redis Exporter     | Redis Memory Usage、Connected Clients、Queue Length（需視資料結構與 Exporter 能力） |
-| Structured Logging | JSON Logs，包含 `trace_id`、`span_id`、`service.name`、`error`               |
+| Structured Logging | JSON Logs，包含 `trace_id`、`span_id`、`service.name`、`error`              |
 
 例如 Python Worker 產生的結構化日誌：
 
@@ -404,13 +408,13 @@ Redis Queue 也可以由 RabbitMQ、Kafka 等 Message Broker 取代。
 
 ## 5. Single Service vs Distributed Systems
 
-| 比較                      | Single Service | Distributed Systems        |
-| ----------------------- | -------------- | -------------------------- |
-| 監控範圍                    | 單一應用程式         | **多個 Microservices** / Workers |
-| Metrics / Logs / Traces | 支援             | 支援                         |
-| Context Propagation     | 通常較簡單          | 必須跨服務傳遞                    |
-| Async Queue Tracking    | 非必要            | **重要**                         |
-| Troubleshooting         | 單一服務分析         | **End-to-End 分析**              |
+| 比較                    | Single Service | Distributed Systems                    |
+| ----------------------- | -------------- | -------------------------------------- |
+| 監控範圍                | 單一應用程式   | **多個 Microservices** / Workers |
+| Metrics / Logs / Traces | 支援           | 支援                                   |
+| Context Propagation     | 通常較簡單     | 必須跨服務傳遞                         |
+| Async Queue Tracking    | 非必要         | **重要**                         |
+| Troubleshooting         | 單一服務分析   | **End-to-End 分析**              |
 
 ### 重點：
 
@@ -425,11 +429,11 @@ Redis Queue 也可以由 RabbitMQ、Kafka 等 Message Broker 取代。
 
 ## 1. 三個核心概念
 
-| Concept                           | 中文說明                    | 主要用途                                                       |
-| --------------------------------- | ----------------------- | ---------------------------------------------------------- |
-| Kubernetes Manifests              | Kubernetes 資源定義檔（YAML）  | 部署 Application、OpenTelemetry、Prometheus、Loki、Tempo、Grafana |
-| **Kustomize**                         | Kubernetes 原生支援的配置客製化工具 | 管理 Dev、UAT、Production 等**環境差異**                                |
-| End-to-End Telemetry Verification | 端到端監控驗證                 | 確認 Metrics、Logs、Traces 都能成功傳送及查詢                           |
+| Concept                           | 中文說明                            | 主要用途                                                          |
+| --------------------------------- | ----------------------------------- | ----------------------------------------------------------------- |
+| Kubernetes Manifests              | Kubernetes 資源定義檔（YAML）       | 部署 Application、OpenTelemetry、Prometheus、Loki、Tempo、Grafana |
+| **Kustomize**               | Kubernetes 原生支援的配置客製化工具 | 管理 Dev、UAT、Production 等**環境差異**                    |
+| End-to-End Telemetry Verification | 端到端監控驗證                      | 確認 Metrics、Logs、Traces 都能成功傳送及查詢                     |
 
 ## 2. Kubernetes + Observability Stack 架構
 
@@ -549,13 +553,13 @@ k8s/
         └── kustomization.yaml
 ```
 
-| 配置             | Development | Production |
-| -------------- | ----------- | ---------- |
-| Replicas       | 1           | 3          |
-| CPU Limit      | 500m        | 2000m      |
-| Memory Limit   | 512Mi       | 2Gi        |
-| Logging        | DEBUG       | INFO       |
-| Trace Sampling | 100%        | 10%（示例策略）  |
+| 配置           | Development | Production      |
+| -------------- | ----------- | --------------- |
+| Replicas       | 1           | 3               |
+| CPU Limit      | 500m        | 2000m           |
+| Memory Limit   | 512Mi       | 2Gi             |
+| Logging        | DEBUG       | INFO            |
+| Trace Sampling | 100%        | 10%（示例策略） |
 
 部署指令：
 
@@ -574,13 +578,13 @@ Kustomize 也支援多個 Namespaces，但需要正確規劃 Namespace、RBAC、
 
 部署後需要確認監控資料能正常流通。
 
-| Verification       | 檢查項目                          | 工具             |
-| ------------------ | ----------------------------- | -------------- |
-| Application Health | Pods 是否 Running / Ready       | kubectl        |
-| Collector Health   | Collector 是否能接收及匯出資料          | OTel Collector |
+| Verification       | 檢查項目                            | 工具           |
+| ------------------ | ----------------------------------- | -------------- |
+| Application Health | Pods 是否 Running / Ready           | kubectl        |
+| Collector Health   | Collector 是否能接收及匯出資料      | OTel Collector |
 | Metrics            | API Latency、Error Rate 是否可查詢  | Prometheus     |
 | Logs               | Application Logs 是否正常匯入       | Loki           |
-| Traces             | 跨 Microservices Trace 是否完整    | Tempo          |
+| Traces             | 跨 Microservices Trace 是否完整     | Tempo          |
 | Correlation        | Grafana 能否透過 Trace ID 關聯 Logs | Grafana        |
 
 例如：
@@ -596,13 +600,13 @@ kubectl get events -n application
 
 ## 6. Kustomize vs Helm
 
-| 比較               | Kustomize          | Helm            |
-| ---------------- | ------------------ | --------------- |
-| 核心方式             | Base + Overlays    | Charts + Values |
-| YAML Templates   | 不需要                | 支援              |
-| Kubernetes 原生整合  | `kubectl apply -k` | 需要 Helm CLI     |
-| 適合               | 自家 Microservices   | 複雜第三方系統         |
-| Grafana Stack 部署 | 可以                 | 通常更方便           |
+| 比較                | Kustomize            | Helm            |
+| ------------------- | -------------------- | --------------- |
+| 核心方式            | Base + Overlays      | Charts + Values |
+| YAML Templates      | 不需要               | 支援            |
+| Kubernetes 原生整合 | `kubectl apply -k` | 需要 Helm CLI   |
+| 適合                | 自家 Microservices   | 複雜第三方系統  |
+| Grafana Stack 部署  | 可以                 | 通常更方便      |
 
 對於你的 Docker Desktop + Kubernetes 開發環境，我比較建議採用混合方式：
 
@@ -622,10 +626,10 @@ kubectl get events -n application
 
 ## 1. 課程的三大目標
 
-| 目標                         | 課程內容                                                           | 實際價值                         |
-| -------------------------- | -------------------------------------------------------------- | ---------------------------- |
-| OpenTelemetry Fundamentals | 掌握 OpenTelemetry 核心概念及 Application Instrumentation             | 能在真實專案建立 Metrics、Logs、Traces |
-| Hands-on Experience        | 透過實作 Lab 和專案建立監控系統                                             | 具備實際部署及 Troubleshooting 能力   |
+| 目標                       | 課程內容                                                         | 實際價值                               |
+| -------------------------- | ---------------------------------------------------------------- | -------------------------------------- |
+| OpenTelemetry Fundamentals | 掌握 OpenTelemetry 核心概念及 Application Instrumentation        | 能在真實專案建立 Metrics、Logs、Traces |
+| Hands-on Experience        | 透過實作 Lab 和專案建立監控系統                                  | 具備實際部署及 Troubleshooting 能力    |
 | Advanced Observability     | Manual Instrumentation、Context Propagation、Distributed Tracing | 能夠追蹤複雜的分散式 Microservices     |
 
 ## 2. 課程涵蓋的進階技術
@@ -648,14 +652,14 @@ kubectl get events -n application
 
 例如在 Angular / Vue + Node.js / Java / Python Microservices + Kubernetes 架構中，完成這些學習後，便能設計以下監控能力：
 
-| 問題                                | 對應技術                                    |
-| --------------------------------- | --------------------------------------- |
-| 哪個 API 執行緩慢？                      | **Prometheus Metrics**                      |
-| 哪個服務發生錯誤？                         | **Loki** Logs                               |
-| 哪個 Microservice 造成延遲？             | **Tempo** Distributed Tracing               |
+| 問題                                         | 對應技術                                |
+| -------------------------------------------- | --------------------------------------- |
+| 哪個 API 執行緩慢？                          | **Prometheus Metrics**            |
+| 哪個服務發生錯誤？                           | **Loki** Logs                     |
+| 哪個 Microservice 造成延遲？                 | **Tempo** Distributed Tracing     |
 | 非同步 Worker 是否與原始 Request 關聯？      | Context Propagation                     |
 | LC Issuance / Payment 哪個業務步驟耗時最久？ | Manual Instrumentation                  |
-| 如何在 Kubernetes 統一管理監控？            | OpenTelemetry Collector + Grafana Stack |
+| 如何在 Kubernetes 統一管理監控？             | OpenTelemetry Collector + Grafana Stack |
 
 > 總結： 這門課程的目的不只是學會 OpenTelemetry，而是學會如何建立一套完整、可用於 Production 的 End-to-End Observability Solution。
 
