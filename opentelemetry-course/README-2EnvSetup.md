@@ -1,4 +1,4 @@
-# Setup OpenTelemetry
+# Environment Setup
 
 ## Prerequsite
 
