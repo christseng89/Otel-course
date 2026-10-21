@@ -361,3 +361,8 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 # code/
+k8s-backup-20261020-163913/
+kind.exe
+*.ps1
+TEST.md
+.deepeval/
