@@ -10,10 +10,29 @@ services:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - prometheus-data:/prometheus
     ports:
-      - '9100:9090' # Change here to 9100 only
+      - '9100:9090' # Change 9100 for Prometheus
+    networks:
+      - observability
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.6.6
+    container_name: loki
+    user: root
+    command:
+      - '-config.file=/etc/loki/loki.yaml'
+      - '-target=all'
+    volumes:
+      - ./loki-config.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+      - loki-wal:/wal
+    ports:
+      - '3200:3100' # Change to 3200 for Loki
     networks:
       - observability
     restart: unless-stopped
 
 volumes:
   prometheus-data:
+  loki-data:
+  loki-wal:
