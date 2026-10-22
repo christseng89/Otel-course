@@ -67,6 +67,8 @@ Prometheus 是一個開源的 Time-Series Database（時間序列資料庫）與
 | Exporter            | 指標匯出元件                    | 將系統或服務資訊暴露為 Metrics          |
 | Grafana             | 視覺化平台                     | Dashboard、查詢及 Alerting       |
 
+> OTLP — OpenTelemetry Protocol（OpenTelemetry 傳輸協定）
+
 ## 2. Pull-Based System（主動抓取模式）
 
 Prometheus 預設透過 Pull-Based 方式收集 Metrics。
@@ -506,3 +508,292 @@ rate(loki_request_duration_seconds_count{
 }[5m])
 
 ```
+
+---
+# 1. Tempo in 5 Minutes（5 分鐘了解 Tempo）
+
+- Understand the Main Components and Characteristics of Tempo（了解 Tempo 的主要元件與特性）
+- **Grafana Tempo** 是一個開源的 Distributed Tracing Backend（分散式追蹤後端），專門用來儲存及查詢 Traces，協助分析跨 Microservices 的 Request Flow、Latency、Errors 及 Service Dependencies。
+- Tempo 的核心特色是 低成本、大規模 Trace Storage + TraceQL 查詢語言。
+
+## 1.1 Tempo 核心概念
+
+| Component / Concept | 中文說明 | 主要用途 |
+|---|---|---|
+| **Tempo** | 分散式追蹤後端（Distributed Tracing Backend） | 儲存、搜尋及分析 Traces |
+| **Trace ID** | 追蹤識別碼 | 唯一識別一條 Distributed Trace |
+| **Span** | 單一操作追蹤區段 | 記錄 Operation、Duration、Attributes、Status |
+| **Context Propagation** | 追蹤上下文傳遞 | 跨 Microservices 維持相同的 Trace ID |
+| **Minimal Indexing** | 最小化索引 | 降低大規模 Trace Storage 成本 |
+| **TraceQL** | Tempo Query Language | 查詢 Trace Attributes、Duration、結構關係 |
+| **OpenTelemetry Collector** | Telemetry 收集及轉送 | 將 Traces 傳送至 Tempo |
+| **Grafana** | 統一視覺化平台 | Trace Timeline、Service Dependencies、Troubleshooting |
+
+
+## 1.2 Metadata Indexing（中繼資料索引）
+
+Tempo 採用以 Trace ID 為核心的 Distributed Trace Storage 架構，使用 Parquet Columnar Storage 儲存及搜尋 Traces，避免對所有 Span Attributes 建立傳統全文索引。
+
+| Trace Entry | Example | Tempo Storage | Description |
+|---|---|---|---|
+| **Trace ID** | `4bf92f3577b34da6a3ce929d0e0e4736` | Trace Lookup / Parquet Blocks | 用於定位和查詢完整 Trace |
+| **Span Attributes** | `service.name="payment-service"` | Parquet Columns / Trace Data | 記錄服務名稱、HTTP Method、錯誤等上下文，支援 TraceQL 查詢 |
+| **Span Contents** | `Execute Payment`、`Database Query` | Trace Data Blocks | 儲存 Span、Duration、Events、Relationships |
+
+### 核心觀念
+
+- **Trace ID**：識別及查詢完整 Distributed Trace。
+- **Span Attributes**：提供查詢條件與上下文資訊。
+- **Trace Data Blocks**：儲存實際 Trace 與 Span 資料。
+- **Parquet Columnar Storage**：使用欄式資料格式提高查詢效率，降低對傳統全文索引的依賴。
+- **TraceQL**：根據 Attributes、Duration、Status 和 Span Relationships 搜尋 Traces。
+
+
+> Tempo 並非完全沒有索引。現代 Tempo 使用 Trace ID Lookup、Block Metadata，以及適合 TraceQL 查詢的資料結構。
+
+## 2. TraceQL — Tempo Query Language
+
+> TraceQL 是 Grafana Tempo 的查詢語言，可以根據 Span Attributes、Resource Attributes、Duration 和 Trace Structure 進行搜尋。
+
+
+## TraceQL 常用語法
+
+| 功能 | TraceQL 範例 | 說明 |
+|---|---|---|
+| **Filter by Attributes** | `{resource.service.name="frontend" && span.http.request.method="GET"}` | 查詢指定服務的 GET Requests |
+| **Duration Filtering** | `{resource.service.name="frontend" && duration > 100ms}` | 查詢執行超過 100ms 的 Spans |
+| **Error Filtering** | `{status = error}` | 查詢 Span Status 為 Error 的 Traces |
+| **Structural Queries** | `{span.http.request.method="GET"} >> {status = error}` | 查詢 GET Span 的後代中存在 Error Span 的 Traces |
+| **Aggregations** | `{status = error} \| count() by (resource.service.name)` | 依 Service Name 統計符合條件的 Spans（TraceQL Metrics） |
+
+> `>>` 表示 Ancestor–Descendant 關係；若需要直接 Parent–Child 關係，應使用 `>`。TraceQL Metrics Aggregation 需要相應版本及功能支援。
+
+## 3. Tempo — Trace 與 Span 的儲存關係
+
+```mermaid
+flowchart TB
+    A["Distributed Trace"]
+    B["Trace ID"]
+    C["Span Attributes"]
+    D["Span Data"]
+
+    A --> B
+    A --> C
+    A --> D
+
+    B --> E["Tempo Trace Lookup"]
+    C --> F["Tempo Trace Blocks"]
+    D --> F
+
+    E --> G["Trace Retrieval / TraceQL"]
+    F --> G
+
+    G --> H["Grafana UI"]
+
+    style A fill:#17324D,color:#fff
+    style E fill:#176B52,color:#fff
+    style F fill:#925415,color:#fff
+    style H fill:#654383,color:#fff
+```
+
+## 4. OpenTelemetry + Tempo + Grafana 架構
+
+```mermaid
+flowchart TB
+    APP["Angular / Vue Frontend"]
+    GW["Kong API Gateway<br/>Native OpenTelemetry"]
+    MS["Java / Node.js / Python Microservices<br/>Auto Instrumentation"]
+    DB[("Database")]
+
+    OTEL["OpenTelemetry Collector"]
+    T["Tempo<br/>Distributed Traces"]
+    G["Grafana UI<br/>TraceQL / Trace Timeline"]
+
+    APP --> GW
+    GW -->|Trace Context| MS
+    MS --> DB
+
+    GW -.->|OTLP| OTEL
+    MS -.->|OTLP| OTEL
+
+    OTEL -->|OTLP| T
+    G -->|TraceQL| T
+
+    style GW fill:#17324D,color:#fff
+    style OTEL fill:#176B52,color:#fff
+    style T fill:#925415,color:#fff
+    style G fill:#654383,color:#fff
+```
+
+在這個架構中：
+
+- Kong：建立或接續 API Request Trace，並傳遞 Trace Context。
+- Microservices：透過 OpenTelemetry Auto Instrumentation 產生 Spans。
+- Collector：接收及轉送 Traces。
+- Tempo：儲存與查詢 Traces。
+- Grafana：以 Trace Timeline 呈現每個 Span 的執行過程。
+
+Angular 不一定需要安裝 OpenTelemetry SDK，但沒有 Browser Instrumentation 時，Trace 一般從 Kong 或第一個已埋點的後端服務開始。
+
+## Mermaid Sequence Diagram — OpenTelemetry + Tempo + Grafana
+
+```mermaid
+sequenceDiagram
+    autonumber
+
+    participant APP as Angular / Vue Frontend
+    participant GW as Kong API Gateway
+    participant MS as Java / Node.js / Python Microservices
+    participant DB as Database
+    participant OTEL as OpenTelemetry Collector
+    participant T as Tempo
+    participant G as Grafana UI
+
+    APP->>GW: HTTP Request
+    activate GW
+    Note over GW: Native OpenTelemetry<br/>Create Trace / Span
+
+    GW->>MS: Forward Request + Trace Context
+    activate MS
+    Note over MS: Auto Instrumentation<br/>Continue Trace / Create Child Spans
+
+    MS->>DB: Execute SQL Query
+    activate DB
+    DB-->>MS: Query Result
+    deactivate DB
+
+    MS-->>GW: API Response
+    deactivate MS
+    GW-->>APP: HTTP Response
+    deactivate GW
+
+    par Kong Telemetry Export
+        GW--)OTEL: OTLP Traces
+    and Microservices Telemetry Export
+        MS--)OTEL: OTLP Traces
+    end
+
+    OTEL->>T: Export Traces via OTLP
+    Note over T: Store Distributed Traces
+
+    G->>T: TraceQL Query / Trace ID
+    T-->>G: Trace Data + Spans
+    Note over G: Display Trace Timeline
+
+```
+
+### Sequence 說明
+
+| Step | Component                        | Action                              |
+| ---- | -------------------------------- | ----------------------------------- |
+| 1    | Angular / Vue                    | 發送 HTTP Request                     |
+| 2    | Kong                             | 建立 Trace / Span                     |
+| 3    | Kong → Microservices             | 傳遞 `traceparent`（Trace Context）     |
+| 4    | Microservices                    | Auto Instrumentation 建立 Child Spans |
+| 5    | Microservices → Database         | 執行 SQL Query                        |
+| 6    | Microservices → Kong             | 回傳 API Response                     |
+| 7    | Kong / Microservices → Collector | **透過 OTLP 匯出 Traces**             |
+| 8    | Collector → Tempo                | 儲存 Distributed Traces               |
+| 9    | Grafana → Tempo                  | 透過 TraceQL 或 Trace ID 查詢            |
+| 10   | Tempo → Grafana                  | 回傳 Traces 與 Spans                   |
+
+重點：
+
+- Angular / Vue：**不需要** OpenTelemetry SDK；Trace 從 Kong 開始。
+- Kong：**Native OTel Instrumentation**，可建立 Trace 並傳遞 Context。
+- Microservices：使用 **Auto Instrumentation** 建立自己的 Spans。
+- OTLP：將 Telemetry Data 傳送至 Collector / Tempo。
+- Grafana：查詢 Tempo，呈現完整 Distributed Trace Timeline。
+
+補充：OTLP 匯出通常透過批次非同步執行，不必等到 API Response 完成才開始傳送，因此 Sequence Diagram 中的匯出位置是邏輯示意。
+
+## 5. Prometheus vs Loki vs Tempo
+
+| Component  | Data      | Query Language      | Indexing Strategy                         |
+| ---------- | --------- | ------------------- | ----------------------------------------- |
+| Prometheus | Metrics   | PromQL              | Time-Series Labels                        |
+| Loki       | Logs      | LogQL               | 主要索引 Log Stream Labels                    |
+| Tempo      | Traces    | TraceQL             | Minimal Indexing + Trace-Oriented Storage |
+| Grafana    | All Three | 各 Data Source 的查詢語言 | Unified Visualization                     |
+
+## 6. 實際例子：Payment Transaction
+
+假設 Payment Transaction 的 Trace 包含：
+
+| Service         | Span              | Duration |
+| --------------- | ----------------- | -------- |
+| Kong Gateway    | `POST /payments`  | 3,200ms  |
+| Payment Service | `process_payment` | 3,100ms  |
+| Account Service | `verify_account`  | 100ms    |
+| Database        | `SELECT account`  | 2,800ms  |
+
+這些是示例數據，Span 可能彼此重疊，不應直接加總。
+
+透過 Tempo 可以：
+
+1. 根據 Trace ID 找到整筆 Payment Transaction。
+2. 查看各個 Span 的開始時間和持續時間。
+3. 確認 Database Query 佔用了大量處理時間。
+4. 利用 Trace ID 關聯 Loki Logs，找出 Slow Query 或 Timeout 的相關錯誤資訊。
+
+### 核心總結
+
+- Tempo = Distributed Tracing Storage + TraceQL
+- OpenTelemetry = Trace Instrumentation + Context Propagation + Export
+- Grafana = Trace Visualization + Troubleshooting
+
+三個 Observability Backends 的角色可以簡單理解為：
+
+- Prometheus：What is happening?
+- Loki：Why did it happen?（提供調查線索）
+- Tempo：Where and how did it happen?
+
+結合三者，便能從 Metrics 異常、Trace 執行路徑及 Logs 詳細事件中，逐步定位 Microservices 的效能瓶頸及故障原因。
+
+---
+
+## Hands on Deploy Tempo
+
+- Create ​`tempo-config.yaml`
+- Update `compose.observability.yaml` & `prometheus.yaml`
+
+```bash
+cd ..
+docker compose up -d
+docker compose ps
+
+docker network inspect observability
+docker network inspect observability | grep Name
+docker network ls | grep observability
+
+docker compose restart prometheus
+```
+
+- http://localhost:9100/targets
+
+
+### Test the Tempo API
+
+```bash
+# Check ready status
+curl http://localhost:3300/ready
+
+# Check metrics endpoint
+curl http://localhost:3300/metrics | head -20
+```
+
+## Check Tempo Metrics
+
+```promql
+up{job="tempo"}
+tempo_build_info
+
+rate(tempo_distributor_traces_per_batch_sum[5m])
+rate(tempo_distributor_push_duration_seconds_count[5m])
+rate(tempo_query_frontend_queue_duration_seconds_count[5m])
+
+tempo_tcp_connections
+tempo_consul_request_duration_seconds_sum
+```
+
+---
