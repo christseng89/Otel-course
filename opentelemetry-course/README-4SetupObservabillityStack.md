@@ -845,3 +845,263 @@ docker compose restart prometheus
 
    => Double click, then **Test**
 ---
+
+# Deployment Application
+
+- Refer to `lab-deploy-application.md`
+
+## 1. **Review the Application Architecture**
+
+  Before deploying, understand the component diagram:
+
+```mermaid
+sequenceDiagram
+    autonumber
+
+    actor U as User Browser
+    participant F as Frontend Service
+    participant R as Redis
+    participant W as Worker Service
+
+    U->>F: HTTP Request
+    activate F
+
+    F->>R: LPUSH jobs (Submit Job)
+    R-->>F: Job Queued
+
+    F-->>U: SSE (Server-Sent Events) Connection Established
+    deactivate F
+
+    W->>R: BRPOP jobs (Wait for Job)
+    R-->>W: Return Job
+    activate W
+
+    W->>W: Process Job
+
+    W->>R: PUBLISH results (Job Result)
+    deactivate W
+
+    Note over F,R: Redis Pub/Sub Subscription Active
+    R-->>F: Deliver Result (SUBSCRIBE results)
+
+    F-->>U: Server-Sent Event (Job Result)
+
+    Note over U,W: Asynchronous Job Processing Completed
+
+```
+
+流程重點：
+
+1. HTTP：Browser 提交 Job。
+2. Redis List（LPUSH）：Frontend 將 Job 加入 Queue。
+3. Redis List（BRPOP）：Worker 從 Queue 取得 Job。
+4. Redis Pub/Sub（PUBLISH）：Worker 發布處理結果。
+5. Redis Pub/Sub（SUBSCRIBE）：Frontend 接收結果。
+6. SSE(Server-Sent Events)：Frontend 即時將結果推送給 Browser。
+
+注意： `LPUSH + BRPOP` 是 Queue 模式，而 `PUBLISH + SUBSCRIBE` 是即時訊息廣播。Redis Pub/Sub 不保證訊息持久化，若 Frontend 暫時斷線，可能遺失結果通知。Production 環境可考慮使用 Redis Streams 或持久化 Job Result。
+
+---
+
+# Deploy Application
+
+- Refer to `lab-deploy-application.md`
+
+## Setup Application
+
+- Create `compose.app.yaml`
+- Update `compose.yaml`
+
+## Deploy App
+
+```bash
+docker compose up -d
+docker compose ps
+
+# Check observability network
+docker network inspect observability | grep Name
+
+# Check app network
+docker network inspect app | grep Name
+```
+
+**Access the Translation Application**
+Open http://localhost:3001
+
+## Monitor Redis Activity
+
+```bash
+# Access Redis CLI
+docker exec -it redis redis-cli
+
+# Check queue length (should be 0 after translations complete)
+LLEN translation:jobs
+
+# List all keys (sessions are stored as hashes)
+KEYS *
+
+# Inspect a session (replace SESSION_ID with actual ID from URL)
+HGETALL session:SESSION_ID
+
+# Check pub/sub channels
+PUBSUB CHANNELS
+
+# Exit Redis CLI
+exit
+```
+
+## Check Container Logs
+
+```bash
+# Frontend logs (HTTP requests, SSE connections)
+docker compose logs frontend --tail=50
+
+# Worker logs (job processing, translation times)
+docker compose logs worker --tail=50
+
+# Redis logs
+docker compose logs redis --tail=50
+```
+
+---
+
+# System Architecture（系統架構）
+
+Understand the Application and Observability Stack We Will Work With（了解課程使用的應用程式與可觀測性架構）
+
+一個部署在 Kubernetes Cluster 中的 Distributed Translation Application（分散式翻譯應用程式），以及如何使用 OpenTelemetry、Prometheus、Loki、Tempo 和 Grafana 進行監控。
+
+## 1. 主要架構元件
+
+| Namespace     | Component               | Responsibility（主要職責）            |
+| ------------- | ----------------------- | ------------------------------- |
+| app           | TypeScript Frontend     | 接收使用者翻譯請求，並將 Job 加入 Queue       |
+| app           | Redis Queue             | 暫存 Translation Jobs，供 Worker 取得 |
+| app           | Python Worker           | 從 Redis Queue 取得並處理翻譯工作         |
+| observability | OpenTelemetry Collector | 收集、處理與轉送 Telemetry              |
+| observability | Prometheus              | Metrics 儲存與查詢                   |
+| observability | Loki                    | Logs 儲存與查詢                      |
+| observability | Tempo                   | Distributed Traces 儲存與查詢        |
+| observability | Grafana                 | 統一視覺化、查詢及告警                     |
+
+## 2. Mermaid — System Architecture
+
+以下使用上下排列方式，方便在 Markdown 中閱讀。
+
+```mermaid
+
+flowchart TB
+    USER["User Browser"]
+
+    subgraph K8S["Kubernetes Cluster"]
+        direction TB
+
+        subgraph APP["Namespace: app"]
+            direction TB
+            FE["TypeScript Frontend"]
+            R[("Redis Queue")]
+            W["Python Worker"]
+
+            FE -->|"Submit Translation Job"| R
+            R -->|"Consume Job"| W
+        end
+
+        COL["OpenTelemetry Collector"]
+
+        subgraph OBS["Namespace: observability"]
+            direction LR
+            P["Prometheus<br/>Metrics"]
+            L["Loki<br/>Logs"]
+            T["Tempo<br/>Traces"]
+        end
+
+        G["Grafana UI"]
+    end
+
+    USER --> FE
+
+    FE -.->|"Metrics / Logs / Traces"| COL
+    R -.->|"Metrics / Logs / Traces"| COL
+    W -.->|"Metrics / Logs / Traces"| COL
+
+    COL -->|"Metrics"| P
+    COL -->|"Logs"| L
+    COL -->|"Traces"| T
+
+    P --> G
+    L --> G
+    T --> G
+
+    style FE fill:#17324D,color:#fff
+    style R fill:#9F3030,color:#fff
+    style W fill:#225B91,color:#fff
+    style COL fill:#176B52,color:#fff
+    style P fill:#925415,color:#fff
+    style L fill:#925415,color:#fff
+    style T fill:#925415,color:#fff
+    style G fill:#654383,color:#fff
+
+```
+
+架構示意：Collector 在圖中獨立顯示以保持清楚，實際部署通常位於 observability Namespace。Redis Metrics / Logs / Traces 的收集方式不同，並非 Redis 必然原生提供所有三種訊號。
+
+## 3. Application Processing Flow
+
+根據之前討論的 Redis Queue、Worker 和 Browser 通知機制，可以將業務流程整理成：
+
+```mermaid
+
+sequenceDiagram
+    autonumber
+    actor U as User Browser
+    participant F as TypeScript Frontend Service
+    participant R as Redis
+    participant W as Python Worker
+
+    U->>F: Submit Translation Request
+    F->>R: LPUSH jobs
+    F-->>U: Job Accepted
+
+    W->>R: BRPOP jobs
+    R-->>W: Translation Job
+
+    W->>W: Process Translation
+    W->>R: PUBLISH result
+
+    R-->>F: Translation Result
+    F-->>U: SSE — Translation Completed
+
+```
+
+這個應用程式的主要特性是 Asynchronous Processing（非同步處理）。
+
+## 4. Observability 如何追蹤這個流程？
+
+| Signal        | Tool       | Monitoring Example                                     |
+| ------------- | ---------- | ------------------------------------------------------ |
+| Metrics       | Prometheus | Translation Jobs Total、Queue Depth、Processing Duration |
+| Logs          | Loki       | Translation Failed、Worker Error、Redis Connection Error |
+| Traces        | Tempo      | Frontend → Redis → Worker 的完整處理路徑                      |
+| Visualization | Grafana    | Dashboard、Trace Timeline、Error Investigation           |
+
+特別需要注意 Distributed Context Propagation：當 Frontend 將 Job 寫入 Redis Queue 時，應將 Trace Context 與 Job 一起傳遞，讓 Worker 可以建立關聯的 Span。
+
+否則 Frontend 和 Python Worker 可能產生兩條無法自動關聯的 Traces。
+
+## 5. 核心觀念
+
+這張圖其實包含兩個獨立但互相關聯的系統：
+
+- Application Stack
+
+    TypeScript Frontend → Redis Queue → Python Worker
+
+- Observability Stack
+
+    OpenTelemetry Collector → Prometheus / Loki / Tempo → Grafana UI
+
+> 其中，Application 負責執行業務，OpenTelemetry 負責 Telemetry Collection，而 Grafana Stack 負責監控和分析。
+
+這正是後續課程要實作的 Kubernetes Distributed Application + End-to-End Observability 架構。
+
+---
