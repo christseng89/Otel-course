@@ -4,7 +4,7 @@ set -euo pipefail
 echo "🚀 Starting Loki validation..."
 echo ""
 
-LOKI_URL="${LOKI_URL:-http://localhost:3200}"
+LOKI_URL="${LOKI_URL:-http://localhost:3110}"
 LABEL="loki-validation"
 MESSAGE="loki-validation-$(date +%s)"
 TIMESTAMP="$(date +%s)000000000"

@@ -27,3 +27,21 @@ ingester:
 compactor:
   compaction:
     block_retention: 72h
+
+# Required by Grafana Trace Drilldown for TraceQL metrics queries such as
+# `{ } | rate()` and `{ } | count_over_time()` in Tempo 2.x.
+metrics_generator:
+  # Dedicated WAL and trace data paths required by the local-blocks processor.
+  storage:
+    path: /var/tempo/generator/wal
+  traces_storage:
+    path: /var/tempo/generator/traces
+  processor:
+    local_blocks:
+      filter_server_spans: false
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors:
+        - local-blocks

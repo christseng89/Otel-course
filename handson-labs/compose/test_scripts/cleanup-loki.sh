@@ -4,7 +4,7 @@ set -euo pipefail
 echo "🧹 Starting Loki cleanup..."
 echo ""
 
-LOKI_URL="${LOKI_URL:-http://localhost:3200}"
+LOKI_URL="${LOKI_URL:-http://localhost:3110}"
 LABEL="loki-validation"
 
 # The delete API expects Unix seconds, not nanoseconds.

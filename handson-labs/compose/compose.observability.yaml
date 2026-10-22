@@ -27,7 +27,7 @@ services:
       - loki-data:/loki
       - loki-wal:/wal
     ports:
-      - '3200:3100' # Change to 3200 for Loki
+      - '3110:3100' # Change to 3110 for Loki
     networks:
       - observability
     restart: unless-stopped
@@ -42,13 +42,40 @@ services:
       - ./tempo-config.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
     ports:
-      - '3300:3200' # Change to 3300 for Tempo
+      - '3200:3200' # Tempo HTTP API and query port
+      - '4317:4317' # OTLP gRPC receiver
+      - '4318:4318' # OTLP HTTP receiver
     networks:
       - observability
     restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.3
+    container_name: grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - '3010:3000' # Change to 3010 for Grafana
+    networks:
+      - observability
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
 
 volumes:
   prometheus-data:
   loki-data:
   loki-wal:
   tempo-data:
+  grafana-data:
+
+networks:
+  observability:
+    driver: bridge

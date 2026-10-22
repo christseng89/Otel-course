@@ -368,7 +368,7 @@ Create 1 file in folder `handson-lab/componse`:
 - loki-config.yaml
 - Then update `compose.observability.yaml` & `prometheus.yaml`
 
-> Change to port 3200 for Loki
+> Change to port 3110 for Loki
 
 ```bash
 docker compose up -d
@@ -394,13 +394,13 @@ docker compose restart prometheus
 
 ### Test Loki
 1. Check health
-curl http://localhost:3200/ready
+curl http://localhost:3110/ready
 
 2. Check metrics
-curl http://localhost:3200/metrics
+curl http://localhost:3110/metrics
 
 3. List label names (may be empty at first)
-curl http://localhost:3200/loki/api/v1/labels
+curl http://localhost:3110/loki/api/v1/labels
 
 - http://localhost:9100/targets
 
@@ -432,7 +432,7 @@ loki_bytes_per_line_bucket
 
 The scripts:
 
-- Use Loki at `http://localhost:3200`
+- Use Loki at `http://localhost:3110`
 - Require only `curl`
 - Send and query a test log
 - Clean up logs asynchronously
@@ -776,10 +776,16 @@ docker compose restart prometheus
 
 ```bash
 # Check ready status
-curl http://localhost:3300/ready
+curl http://localhost:3200/ready
 
 # Check metrics endpoint
-curl http://localhost:3300/metrics | head -20
+curl http://localhost:3200/metrics | head -20
+
+# Validate Tempo
+cd test_scripts
+bash validate-tempo.sh
+
+cd ..
 ```
 
 ## Check Tempo Metrics
@@ -796,4 +802,46 @@ tempo_tcp_connections
 tempo_consul_request_duration_seconds_sum
 ```
 
+---
+# Deploy Grafana
+
+1. Create `grafana-datasources.yaml`
+2. Update `​compose.observability.yaml` & `prometheus.yaml`
+
+```bash
+docker compose up -d
+docker network inspect observability | grep Name
+
+docker compose restart prometheus
+```
+---
+
+1. **Access Grafana**
+   - Open http://localhost:3010 in your browser
+
+2. **Verify Data Sources**
+   - Navigate to **Connections → Data Sources**
+   - You should see three data sources:
+     - **Prometheus** (default)
+     - **Loki**
+     - **Tempo**
+
+   Click on each data source and scroll to the bottom. Click **"Save & Test"** button. You should see a green success message for all three.
+
+3. **Explore Prometheus Metrics**
+   - Click **Explore** (compass icon) in the left sidebar
+   - Ensure "**Prometheus**" is selected in the data source dropdown (top left) and Query with **Code**
+   - Try these queries in the query builder:
+     - `up` - Shows which services are up
+     - `up{job="loki"}` - Filter by job label
+     - `rate(prometheus_http_requests_total[5m])` - Request rate
+
+   Switch between "Table", "Graph", and "Stats" visualizations.
+
+4. **Connections** > **Data sources**
+   - Loki
+   - Prometheus
+   - Tempo
+
+   => Double click, then **Test**
 ---
