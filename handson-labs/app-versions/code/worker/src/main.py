@@ -62,7 +62,7 @@ def main() -> None:
         queue_consumer.connect()
 
         # Initialize translator
-        logger.info("Initializing translator...")
+        logger.info("Initializing translator!!!")
         translator = Translator()
         logger.info("Translator ready")
 

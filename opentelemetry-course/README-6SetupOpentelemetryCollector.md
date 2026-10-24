@@ -306,6 +306,10 @@ docker network ls | grep app
 
     Make a change to `app-versions/code/worker/src/main.py`. You should see watchmedo detecting the change and restarting the Python worker.
 
+```bash
+docker compose -f compose.dev.yaml logs frontend
+docker compose -f compose.dev.yaml logs worker
+```
 6. **Switch to Production Mode**
 
    To use pre-built images:
