@@ -2545,3 +2545,115 @@ Custom Attributes 的名稱、型別、允許值、敏感性及用途，建議�
 > 最重要的觀念：Semantic Conventions 負責統一 Telemetry 的名稱與意義；OTel API 負責建立 Telemetry；OTel SDK / Agent 負責處理及匯出 Telemetry。
 
 ---
+# Application 客製化的 Naming Convention + Data Dictionary（命名規範與資料字典）非常重要。
+
+特別是在 Java、Python、Node.js 多團隊開發的 Banking Microservices 架構中，建議建立統一的 Business Telemetry Data Dictionary。
+
+## 1. 為甚麼需要統一的 Data Dictionary？
+
+假設三個團隊都需要記錄 Payment Status：
+
+| Team    | 自訂 Attribute         | Value       |
+| ------- | -------------------- | ----------- |
+| Java    | `paymentStatus`      | `SUCCESS`   |
+| Python  | `payment_status`     | `COMPLETED` |
+| Node.js | `transaction.status` | `OK`        |
+
+這三個欄位可能描述同一個業務概念，但名稱與允許值不同，造成 Grafana / Tempo 查詢及分析困難。
+
+因此，應統一成：
+
+```text
+payment.processing.status = success
+```
+
+所有團隊使用相同的 Attribute Name、Type、Allowed Values 和 Business Definition。
+
+## 2. 建議的 Business Telemetry Data Dictionary
+
+| Attribute Name                  | Type   | Allowed Values                                      | Business Definition |
+| ------------------------------- | ------ | --------------------------------------------------- | ------------------- |
+| `payment.processing.status`     | String | `success`, `failed`, `pending`                      | 付款處理狀態              |
+| `payment.type`                  | String | `inward`, `outward`                                 | 付款類型                |
+| `payment.currency`              | String | ISO 4217 Currency Code                              | 交易幣別                |
+| `lc.issuance.stage`             | String | `validation`, `limit_check`, `booking`, `completed` | LC 開狀處理階段           |
+| `settlement.processing.status`  | String | `success`, `failed`, `pending`                      | 清算處理狀態              |
+| `scf.invoice.validation.status` | String | `passed`, `failed`                                  | SCF Invoice 驗證結果    |
+
+以上是建議的內部自訂屬性，不是 OpenTelemetry 官方 Semantic Conventions。
+
+## 3. Data Dictionary 不應只有欄位名稱
+
+我建議每個 Attribute 至少定義以下資訊：
+
+| Definition            | Purpose                                       |
+| --------------------- | --------------------------------------------- |
+| Attribute Name        | 統一名稱                                          |
+| Data Type             | String、Boolean、Integer 等                      |
+| Allowed Values        | 定義合法值及大小寫                                     |
+| Business Definition   | 明確定義業務含義                                      |
+| Applicable Operations | 哪些 Spans 可以使用                                 |
+| Required / Optional   | 是否必須記錄                                        |
+| Cardinality           | Low / Medium / High                           |
+| Data Classification   | Public / Internal / Confidential / Restricted |
+| Owner / Version       | 負責團隊與規範版本                                     |
+
+## 4. 建議管理架構
+
+```mermaid
+flowchart TB
+    A["Enterprise Telemetry Standards"]
+
+    B["OpenTelemetry<br/>Official Semantic Conventions"]
+    C["Banking Business<br/>Telemetry Data Dictionary"]
+
+    A --> B
+    A --> C
+
+    C --> D["Payment Attributes"]
+    C --> E["Trade Finance Attributes"]
+    C --> F["SCF / Settlement Attributes"]
+
+    B --> G["Shared Instrumentation Libraries"]
+    D --> G
+    E --> G
+    F --> G
+
+    G --> H["Java / Python / Node.js<br/>Microservices"]
+
+    H --> I["OTel Collector"]
+    I --> J["Tempo / Loki / Prometheus"]
+    J --> K["Grafana UI"]
+
+    style A fill:#17324D,color:#fff
+    style B fill:#225B91,color:#fff
+    style C fill:#176B52,color:#fff
+    style G fill:#654383,color:#fff
+    style I fill:#176B52,color:#fff
+```
+
+## 5. 對 Banking Microservices 的額外建議
+
+還要特別控制三件事：
+
+- Cardinality：不要將 Transaction ID、LC Number、Customer ID 直接作為 Prometheus Metrics Labels。
+- Sensitive Data：避免將 Account Number、Customer PII、Credentials 等寫入 Telemetry。
+- Business Status vs Technical Status：例如付款因 Insufficient Funds 被正常拒絕，可能是業務結果 `rejected`，但 HTTP Request 成功處理。兩者不可混淆。
+
+另外，Telemetry Data Dictionary 不應取代正式的 Banking Business Data Dictionary。前者用於 Observability，後者用於定義交易資料、業務狀態及系統間契約。
+
+### 最終建議
+
+我建議為你的 Microservices 平台制定一套：
+
+Enterprise OpenTelemetry Semantic Conventions + Banking Business Telemetry Data Dictionary
+
+由 Platform / Architecture Team 統一維護，再提供 Java、Python、Node.js 共用 Constants 或 Instrumentation Libraries。
+
+這樣各團隊就能做到：
+
+Same Business Meaning → Same Attribute Name → Same Data Type → Same Allowed Values → Consistent Observability
+
+這不僅方便 Grafana 查詢，更可以支援跨產品、跨團隊的標準化效能分析與故障調查。
+
+---

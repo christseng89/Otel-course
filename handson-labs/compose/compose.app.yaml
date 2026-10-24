@@ -17,7 +17,7 @@
        restart: unless-stopped
 
      frontend:
-       image: lmacademy/web-translator-frontend:v1.1.0
+      #  image: lmacademy/web-translator-frontend:v1.1.0
        container_name: frontend
        ports:
          - '3001:3000'
@@ -35,7 +35,7 @@
        restart: unless-stopped
 
      worker:
-       image: lmacademy/web-translator-worker:v1.1.0
+      #  image: lmacademy/web-translator-worker:v1.1.0
        container_name: worker
        environment:
          - REDIS_HOST=redis
