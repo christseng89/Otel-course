@@ -324,3 +324,401 @@ docker network inspect app | grep Name
 docker network ls | grep observability
 docker network ls | grep app
 ```
+
+---
+# OpenTelemetry Collector — 有無 Collector 的架構差異
+
+Explore the Use Case and Architecture of the OpenTelemetry Collector（了解 Collector 的使用情境與架構）
+
+這張圖片主要比較 Without a Collector（沒有 Collector） 與 With a Collector（使用 Collector） 的差異。
+
+核心觀念是：OTel Collector 將 Application 與 Observability Backends 解耦，集中管理 Metrics、Logs、Traces 的接收、處理及轉送。
+
+## 1. Without vs With Collector
+
+| 比較項目                    | Without Collector         | With Collector              |
+| ----------------------- | ------------------------- | --------------------------- |
+| Telemetry Export        | Application 直接連接 Backends | Application 統一傳送至 Collector |
+| Backend Configuration   | 各 Application 分別配置        | Collector 集中管理              |
+| Metrics / Logs / Traces | 各自處理傳輸                    | 統一接收及路由                     |
+| Vendor Switching        | 可能需修改多個服務配置               | 主要調整 Collector              |
+| Filtering / Transform   | 分散處理                      | 集中處理                        |
+| Multi-backend Export    | 各 Application 自行配置        | Collector 統一分發              |
+| 維護成本                    | 隨服務數量增加                   | 通常較容易集中管理                   |
+| 額外基礎設施                  | 較少                        | 需要部署 Collector              |
+
+## 2. Without Collector（沒有 Collector）
+
+每個 Application 直接與各個 Observability Backend 整合。
+
+```mermaid
+
+flowchart TB
+    FE["TypeScript Frontend"]
+    R["Redis Queue"]
+    W["Python Worker"]
+
+    P["Prometheus — Metrics"]
+    T["Tempo — Traces"]
+    L["Loki — Logs"]
+
+    FE --> P
+    FE --> T
+    FE --> L
+
+    R --> P
+    R --> T
+    R --> L
+
+    W --> P
+    W --> T
+    W --> L
+
+    style FE fill:#17324D,color:#fff
+    style R fill:#9F3030,color:#fff
+    style W fill:#225B91,color:#fff
+
+```
+
+這是課程的概念圖。實際上 Prometheus 通常使用 Scrape，Redis 也不一定原生產生 Logs / Traces，更不代表所有服務都必須直接連接三個 Backend。
+
+缺點： 當 Microservices 增加時，Backend Endpoint、Exporters、Security、Sampling 等配置可能分散於多個服務中。
+
+## 3. With Collector（使用 Collector）
+
+Application 統一將 Telemetry 送至 Collector，再由 Collector 分流。
+
+```mermaid
+
+flowchart TB
+    FE["TypeScript Frontend"]
+    R["Redis Queue"]
+    W["Python Worker"]
+
+    C["OpenTelemetry Collector"]
+
+    P["Prometheus — Metrics"]
+    T["Tempo — Traces"]
+    L["Loki — Logs"]
+
+    FE -->|Telemetry| C
+    R -->|Telemetry| C
+    W -->|Telemetry| C
+
+    C -->|Metrics| P
+    C -->|Traces| T
+    C -->|Logs| L
+
+    style FE fill:#17324D,color:#fff
+    style R fill:#9F3030,color:#fff
+    style W fill:#225B91,color:#fff
+    style C fill:#176B52,color:#fff
+
+```
+
+優點： Application 可以統一使用 OTLP，Collector 再按照不同的資料類型配置 Pipelines。
+
+## 4. Collector 的實際價值
+
+| Collector Capability | 說明                                    |
+| -------------------- | ------------------------------------- |
+| Receivers            | 接收 OTLP、Prometheus Scrape、Filelog 等資料 |
+| Processors           | Batch、Filter、Transform、Sampling       |
+| Exporters            | 轉送至 Prometheus、Loki、Tempo 等           |
+| Multiple Pipelines   | Metrics / Logs / Traces 分別處理          |
+| Backend Decoupling   | 降低 Application 與特定 Vendor 的依賴         |
+
+## 5. 對你的 Microservices 架構的建議
+
+```mermaid
+flowchart TB
+    A["Angular / Vue Frontend"]
+    B["Traefik API Gateway"]
+    C["Java / Node.js / Python Microservices"]
+    D[("Database")]
+
+    O["OTel Collector Gateway"]
+
+    P["Prometheus"]
+    L["Loki"]
+    T["Tempo"]
+    G["Grafana UI"]
+
+    A --> B --> C --> D
+
+    B -.->|OTLP Traces| O
+    C -.->|OTLP Telemetry| O
+
+    O -->|Metrics| P
+    O -->|Logs| L
+    O -->|Traces| T
+
+    P --> G
+    L --> G
+    T --> G
+
+    style B fill:#17324D,color:#fff
+    style O fill:#176B52,color:#fff
+    style G fill:#925415,color:#fff
+```
+
+實際部署中，Prometheus 可以 Scrape Metrics，Logs 可以經 Log Agent 收集，再由 Collector 處理；不是所有資料都必須使用相同的傳輸協定。
+
+### 核心總結
+
+- Without Collector：每個 Application 需自行處理與 Observability Backends 的整合。
+- With Collector：Application 專注產生 Telemetry，Collector 集中處理及轉送資料。
+- OTel Collector Gateway：很適合多個 Microservices 共用的 Observability 架構。
+
+對你目前的 Docker Compose 或單節點 Kubernetes 環境，我推薦先使用一個 OTel Collector Gateway。 未來需要跨節點收集 Container Logs、Node Metrics 或高可用部署時，再評估增加 Collector Agents 與 Gateway Replicas。
+
+---
+# OpenTelemetry Collector — Architecture（收集器架構）
+
+Explore the Use Case and Architecture of the OpenTelemetry Collector（了解 Collector 的使用情境與內部架構）
+
+**OpenTelemetry Collector** 的**三大核心元件**：
+
+- Receivers → 
+- Processors → 
+- Exporters
+
+Collector 可以同時建立 Metrics、Traces、Logs 三條獨立的 **Telemetry Pipelines**，並對每條 Pipeline 設定不同的資料處理和輸出方式。
+
+## 1. Collector 的三大核心元件
+
+| Component  | 中文名稱 | Responsibility                                    |
+| ---------- | ---- | ------------------------------------------------- |
+| Receivers  | 接收器  | 接收 OTLP/gRPC、OTLP/HTTP 等 Telemetry                |
+| Processors | 處理器  | Memory Limiting、Batching、Filtering、Transformation |
+| Exporters  | 匯出器  | 將 Telemetry 傳送至 Prometheus、Tempo、Loki 等 Backend   |
+| Pipelines  | 資料管線 | 定義 Receivers、Processors、Exporters 的組合與順序          |
+
+## 2. Collector Architecture — Mermaid
+
+以下使用垂直排列，避免 Markdown Preview 中圖形過寬。
+
+```mermaid
+
+flowchart TB
+    A["Applications / Microservices"]
+
+    R["OTLP Receivers<br/>gRPC :4317 / HTTP :4318"]
+
+    A -->|OTLP| R
+
+    subgraph COL["OpenTelemetry Collector"]
+        direction TB
+
+        R --> M1["Metrics Pipeline<br/>memory_limiter → batch"]
+        R --> T1["Traces Pipeline<br/>memory_limiter → batch"]
+        R --> L1["Logs Pipeline<br/>memory_limiter → batch"]
+    end
+
+    M1 --> P["Prometheus<br/>Metrics"]
+    T1 --> T["Tempo<br/>Traces"]
+    L1 --> L["Loki<br/>Logs"]
+
+    style R fill:#17324D,color:#fff
+    style M1 fill:#225B91,color:#fff
+    style T1 fill:#654383,color:#fff
+    style L1 fill:#176B52,color:#fff
+
+```
+
+三條 Pipelines 可以共享 Receiver 與 Processor 的設定，但各 Pipeline 處理的是不同 Signal Type。
+
+## 3. Processors — 資料處理元件
+
+圖片中的主要設定是 `memory_limiter` 和 `batch`。
+
+| Processor        | 功能                  | 用途                             |
+| ---------------- | ------------------- | ------------------------------ |
+| `memory_limiter` | 記憶體限制               | 控制 Collector 記憶體使用，降低 OOM 風險   |
+| `batch`          | 批次處理                | 將多筆 Telemetry 合併後匯出，提升效率       |
+| `attributes`     | Attribute 處理        | 增加、修改、刪除 Attributes            |
+| `filter`         | 資料過濾                | 排除不需要的 Logs / Metrics / Traces |
+| `tail_sampling`  | 尾端採樣                | 根據 Trace 結果、延遲或其他條件決定是否保留      |
+| `k8sattributes`  | Kubernetes Metadata | 補充 Namespace、Pod、Node 等資訊      |
+| `transform`      | 資料轉換                | 透過 OTTL 修改 Telemetry           |
+
+部分 Processors 需要使用 OpenTelemetry Collector Contrib 發行版本。
+
+## 4. Collector YAML Configuration
+
+以下是圖片中 `memory_limiter` 和 `batch` 的設定。
+
+```yaml
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+```
+
+### 各項參數說明
+
+| Parameter             | Value  | Description                  |
+| --------------------- | ------ | ---------------------------- |
+| `check_interval`      | `1s`   | 每秒檢查 Collector 記憶體使用情況       |
+| `limit_mib`           | `512`  | Memory Limiter 使用的記憶體上限（MiB） |
+| `spike_limit_mib`     | `128`  | 預留給突發記憶體用量的空間                |
+| `timeout`             | `10s`  | Batch 最長等待時間                 |
+| `send_batch_size`     | `1024` | 觸發 Batch 匯出的資料數量門檻           |
+| `send_batch_max_size` | `2048` | 單一 Batch 最多包含的資料數量           |
+
+`memory_limiter` 是保護機制，不等於 Kubernetes Container 的 Memory Limit。當記憶體使用過高時，Collector 可能拒絕部分新資料，因此需要搭配監控、Retry 和適當的資源配置。
+
+另外，`send_batch_size` 是觸發匯出的門檻，不代表每次 Batch 必然剛好包含 1024 筆資料。
+
+## 5. 完整 `otel-config.yaml` 範例
+
+以下示範三種 Telemetry 如何分別傳送至 Prometheus、Tempo 和 Loki。
+
+```yaml
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki]
+
+```
+
+此範例假設使用包含 Prometheus Exporter 的 Collector 發行版本、Tempo 已啟用 OTLP/gRPC Receiver、Loki 已啟用 OTLP HTTP Ingestion，並且所有服務位於可互通的 Docker Network。Prometheus 需另外配置 Scrape Target `otel-collector:8889`。範例中的無 TLS 連線僅適用於受信任的本地開發網路。
+
+## 6. Pipeline 的處理順序
+
+```mermaid
+flowchart TB
+    A["OTLP Receiver"]
+    B["Memory Limiter"]
+    C["Batch Processor"]
+    D{"Telemetry Type"}
+
+    E["Prometheus Exporter"]
+    F["OTLP Tempo Exporter"]
+    G["OTLP HTTP Loki Exporter"]
+
+    A --> B --> C --> D
+    D -->|Metrics| E
+    D -->|Traces| F
+    D -->|Logs| G
+
+    style A fill:#17324D,color:#fff
+    style B fill:#925415,color:#fff
+    style C fill:#225B91,color:#fff
+    style D fill:#654383,color:#fff
+```
+
+這是方便理解的概念流程。實際 Collector 會在 Receiver 後將不同 Signal 分配到各自的 Pipeline，而不是經過同一個 Batch Processor 才分流。
+
+## 7. 為甚麼要分開三條 Pipelines？
+
+| Pipeline | 使用者需求                                     | Backend    |
+| -------- | ----------------------------------------- | ---------- |
+| Metrics  | API Latency、Error Rate、CPU、Memory         | Prometheus |
+| Traces   | Distributed Tracing、Span Duration、TraceQL | Tempo      |
+| Logs     | ERROR、WARN、INFO、LogQL                     | Loki       |
+
+因為各種 Telemetry 的處理需求不同，所以你可以：
+
+- 對 Traces 加入 `tail_sampling`。
+- 對 Logs 加入 `filter` 或 `transform`。
+- 對 Metrics 加入適當的 Attribute / Cardinality 控制。
+- 對不同 Pipelines 設定不同的 Exporters。
+
+## 8. 核心總結
+
+OTel Collector = Receivers + Processors + Exporters + Pipelines
+
+- Receivers：Where telemetry comes from.
+- Processors：How telemetry is processed.
+- Exporters：Where telemetry goes.
+- Pipelines：How the components are connected.
+
+對你的 Docker Compose / Kubernetes Observability Stack，這種架構可以集中管理 Metrics、Logs 和 Traces 的處理方式，不需要每個 Java / Python / Node.js Microservice 都自行處理與 Prometheus、Loki、Tempo 的直接整合。
+
+最重要的設計原則：在 `otel-config.yaml` 的 `service.pipelines` 中明確定義三條資料管線，並將 `memory_limiter` 放在 `batch` 前面，以提高 Collector 的穩定性。
+
+---
+
+# Handson - Deploy OpenTelemetry Collector
+
+- Refer to `lab-deploy-collector.md`
+
+1. Create `otel-collector-config.yaml​`:
+2. Update Observability Stack to Include Collector `compose.observability.yaml`
+3. Update Prometheus to Scrape Collector Metrics `prometheus.yaml`
+4. Review `tempo-config.yaml`​ to ensure the distributor has OTLP receivers configured
+5. Start the Complete Observability Stack
+
+```bash
+docker compose -f compose.dev.yaml down  # Stop existing services
+docker compose -f compose.dev.yaml up -d # Start with Collector included
+
+# Check all services are up
+docker compose -f compose.dev.yaml ps
+# Check Collector logs - look for success messages
+docker compose -f compose.dev.yaml logs otel-collector | tail -30
+
+```
+
+6. Test that the Collector endpoints are accessible:
+
+```bash
+# Test HTTP endpoint (should return 404, which confirms it's listening)
+curl -i http://localhost:4318/
+
+# Check Collector's own metrics are exposed
+curl -s http://localhost:8889/metrics | head -20
+```
