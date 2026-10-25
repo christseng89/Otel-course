@@ -705,20 +705,308 @@ OTel Collector = Receivers + Processors + Exporters + Pipelines
 ```bash
 docker compose -f compose.dev.yaml down  # Stop existing services
 docker compose -f compose.dev.yaml up -d # Start with Collector included
+docker compose -f compose.dev.yaml restart prometheus
 
 # Check all services are up
 docker compose -f compose.dev.yaml ps
+docker compose -f compose.dev.yaml ps otel-collector
 # Check Collector logs - look for success messages
 docker compose -f compose.dev.yaml logs otel-collector | tail -30
 
-```
+docker compose -f compose.dev.yaml up -d --force-recreate tempo grafana
+docker compose -f compose.dev.yaml logs -f tempo
 
-6. Test that the Collector endpoints are accessible:
+```
+---
+
+## Test that the Collector endpoints are accessible:
 
 ```bash
 # Test HTTP endpoint (should return 404, which confirms it's listening)
 curl -i http://localhost:4318/
 
 # Check Collector's own metrics are exposed
-curl -s http://localhost:8889/metrics | head -20
+curl -is http://localhost:8889/metrics | head -20
+
 ```
+
+---
+
+# Lab: Test & Monitor the Collector
+
+- Refer to `lab-test-collector.md`
+
+## 1. Send Test Trace to Collector
+
+```bash
+# Verify Tempo is actually responding
+curl -i http://localhost:3200/ready # Until it is ready
+
+curl -i "http://localhost:3200/api/search/tags"
+docker compose -f compose.dev.yaml logs --tail=100 tempo
+
+curl -X POST http://localhost:4318/v1/traces \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceSpans": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "test-app"}}
+        ]
+      },
+      "scopeSpans": [{
+        "scope": {"name": "test-instrumentation"},
+        "spans": [{
+          "traceId": "'$(openssl rand -hex 16)'",
+          "spanId": "'$(openssl rand -hex 8)'",
+          "name": "test-operation",
+          "kind": 1,
+          "startTimeUnixNano": "'$(date +%s)000000000'",
+          "endTimeUnixNano": "'$(( $(date +%s) + 1 ))000000000'",
+          "status": {"code": 0}
+        }]
+      }]
+    }]
+  }'
+
+# {"partialSuccess":{}}
+
+curl -X POST http://localhost:4318/v1/traces \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceSpans": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "test-app"}}
+        ]
+      },
+      "scopeSpans": [{
+        "spans": [{
+          "traceId": "5B8EFFF798038103D269B633813FC60C",
+          "spanId": "7BBAF3A1C2D4E5F6",
+          "name": "manual-span",
+          "kind": 1,
+          "startTimeUnixNano": "1730000000000000000",
+          "endTimeUnixNano": "1730000001000000000"
+        }]
+      }]
+    }]
+  }'
+```
+## 2. Verify Trace in Tempo
+
+Open Grafana at http://localhost:3010:
+
+* Go to **Explore** → Select **Tempo**
+* Click **Search** tab in Query Type → **Run query**
+* Find your trace with service.name = "test-app"
+* Click on it to see the span details
+
+## 3. Check Collector Metrics
+
+Open Prometheus at http://localhost:9100 and verify the Collector is healthy:
+
+```bash
+curl -s http://localhost:8888/metrics | grep otelcol
+curl -s http://localhost:8888/metrics | grep otelcol_receiver_accepted_spans
+curl -s http://localhost:8888/metrics | grep otelcol_exporter_sent_spans
+
+```
+
+```promql
+# Collector is up
+up{job="otel-collector"}
+
+# Spans were received
+otelcol_receiver_accepted_spans_total
+otelcol_exporter_sent_spans_total
+
+# Spans were received to Collector
+otelcol_receiver_accepted_spans_total{receiver="otlp"}
+
+# Spans were sent to Tempo
+otelcol_exporter_sent_spans_total{exporter="otlp/tempo"}
+
+# No errors
+otelcol_receiver_refused_spans_total
+otelcol_receiver_failed_spans_total
+```
+
+```bash
+curl -is http://localhost:8889/metrics | head -20
+curl -is http://localhost:8888/metrics | head -20
+
+curl -is http://localhost:8888/metrics | grep otel
+```
+
+---
+# 在 OpenTelemetry Collector 中，Port 8888 與 8889 都可以讓 Prometheus Scrape Metrics，但兩者用途完全不同。
+
+- **8888** = Collector Internal Metrics：**監控 OpenTelemetry Collector 自己的健康狀態**及運作效能。
+- **8889** = Application Metrics Exporter：Collector 將**收到的 Application Metrics 轉換成 Prometheus** 可以抓取的格式。
+
+## 1. Port 8888 vs 8889
+
+| 比較項目                     | Port **8888**                      | Port **8889**                             |
+| ------------------------ | ------------------------------ | ------------------------------------- |
+| 主要用途                     | Collector Internal Monitoring  | Application Metrics Export            |
+| Metrics 來源               | Collector 本身                   | Java / Python / Node.js Microservices |
+| 資料收集方式                   | Collector 自動產生                 | Application → OTLP → Collector        |
+| Prometheus 抓取            | ✅                              | ✅                                     |
+| 是否需要 Prometheus Exporter | ❌                              | ✅                                     |
+| 典型用途                     | Collector Health / Performance | Business / Application Metrics        |
+| Port 是否固定                | 可配置，常見為 8888                   | 可配置，8889 是常見範例                        |
+
+例如：
+
+8888（Collector 本身的 Metrics）
+
+```
+otelcol_receiver_accepted_spans
+otelcol_exporter_sent_spans
+otelcol_exporter_send_failed_spans
+otelcol_process_memory_rss
+```
+
+8889（Application Metrics）
+
+```
+http_server_request_duration_seconds
+payment_processed_total
+payment_failed_total
+```
+
+實際 Metrics 名稱取決於 Collector、SDK、Exporter 版本，以及所使用的命名轉換規則。
+
+## 2. 資料流程圖
+
+```mermaid
+flowchart TB
+    APP["Java / Python / Node.js Microservices"]
+    OTEL["OpenTelemetry Collector"]
+
+    M["Application Metrics<br/>Port 8889"]
+    I["Collector Internal Metrics<br/>Port 8888"]
+
+    P["Prometheus"]
+    G["Grafana"]
+
+    APP -->|OTLP 4317 / 4318| OTEL
+
+    OTEL --> M
+    OTEL --> I
+
+    P -->|Scrape :8889| M
+    P -->|Scrape :8888| I
+
+    P --> G
+
+    style OTEL fill:#176B52,color:#fff
+    style M fill:#17324D,color:#fff
+    style I fill:#925415,color:#fff
+    style P fill:#654383,color:#fff
+```
+
+## 3. 對應的 Collector 配置
+
+你的 `prometheus.yaml` 已經配置兩個 Scrape Jobs，但也必須確保 Collector 真的在這兩個 Port 提供 Metrics。
+
+Port 8889 — Application Metrics
+
+在 `otel-config.yaml`：
+
+```
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+```
+
+Port 8888 — Collector Internal Metrics
+
+對較新的 Collector，可明確配置：
+
+```
+service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+```
+
+要特別注意，Collector 的 Internal Metrics 預設可能只綁定 `127.0.0.1:8888`。在 Docker Compose 裡，Prometheus 是另一個 Container，因此需要綁定 `0.0.0.0` 才能跨容器抓取。
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub
+
++1
+
+
+
+## 4. 你的 `prometheus.yaml` 設定正確嗎？
+
+✅ 是的，兩個 Scrape Job 的設計正確。
+
+```
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8889']
+
+  - job_name: 'otel-collector-internal'
+    static_configs:
+      - targets: ['otel-collector:8888']
+```
+
+只要 Collector 已在這兩個 Port 正確啟用對應 Endpoint，且 Docker Network 允許連線，就能收集兩種類型的 Metrics。
+
+## 5. 如何驗證？
+
+在 Prometheus UI（你的 Host Port 是 9100）開啟：
+
+`http://localhost:9100`
+
+執行以下 PromQL：
+
+```
+up{job="otel-collector"}
+```
+
+```
+up{job="otel-collector-internal"}
+```
+
+結果代表：
+
+| Value | Meaning                   |
+| ----- | ------------------------- |
+| `1`   | Prometheus 成功抓取該 Endpoint |
+| `0`   | Scrape 失敗                 |
+| 沒有資料  | 該 Target 尚未建立、沒有被發現或沒有資料  |
+
+注意：`up=1` 只證明 Scrape 成功，不代表 Application Metrics 一定已經成功進入 Collector。 還需要查詢具體業務指標確認資料流。
+
+### 核心總結
+
+| Port | 用途                         | 你要監控甚麼？             |
+| ---- | -------------------------- | ------------------- |
+| 4317 | OTLP/gRPC Receiver         | 接收 Telemetry        |
+| 4318 | OTLP/HTTP Receiver         | 接收 Telemetry        |
+| 8888 | Collector Internal Metrics | Collector 自身健康與效能   |
+| 8889 | Prometheus Exporter        | Application Metrics |
+
+簡單記住：8888 監控 Collector 本身；8889 監控經過 Collector 的 Application Metrics。
+
+因此我建議你保留這兩個 Prometheus Scrape Jobs，因為它們用途不同，而且可以讓你同時觀察 Application 與 Telemetry Pipeline 的健康狀態。
+
+---

@@ -366,3 +366,6 @@ kind.exe
 *.ps1
 TEST.md
 .deepeval/
+
+# Local handson labs
+/handson-labs/labs/
