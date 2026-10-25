@@ -513,3 +513,262 @@ http_client_duration_milliseconds_bucket{exported_job="translation-frontend"}
 ```
 
 ---
+
+# Manual Instrumentation for Metrics - Lab Overview
+
+- Refer to `lab-metrics-manual.md`
+
+## 1. Create `metrics.ts`
+
+```typescript
+import { metrics } from '@opentelemetry/api';
+
+const meter = metrics.getMeter('translation-frontend', '1.0.0');
+
+export const translationRequestsCounter = meter.createCounter(
+  'translation.requests.total',
+  { description: 'Total translation requests' },
+);
+
+export const jobsEnqueuedCounter = meter.createCounter(
+  'translation.jobs.enqueued.total',
+  { description: 'Total translation jobs enqueued' },
+);
+
+export const requestDuration = meter.createHistogram(
+  'translation.request.duration',
+  { description: 'Translation request processing time', unit: 'ms' },
+);
+
+export const validationErrorsCounter = meter.createCounter(
+  'translation.validation.errors.total',
+  { description: 'Translation validation errors' },
+);
+
+export const serverErrorsCounter = meter.createCounter(
+  'translation.server.errors.total',
+  { description: 'Translation API 5xx server errors' },
+);
+
+```
+
+```bash
+cd ..
+cd app-versions/code/frontend/
+
+npm i --save-exact @opentelemetry/api@1.9.1
+
+```
+
+## 2. Instrument `/routes/translation.ts`
+
+```typescript
+import {
+  translationRequestsCounter,
+  jobsEnqueuedCounter,
+  requestDuration,
+  validationErrorsCounter,
+  serverErrorsCounter,
+} from '../metrics.js';
+
+...
+
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    const start = Date.now();
+    const body = req.body as TranslateRequest;
+
+    // Validation with error tracking
+    if (!body.text || typeof body.text !== 'string' || !body.text.trim()) {
+      validationErrorsCounter.add(1, { error_type: 'empty_text' });
+      res.status(400).json({
+        error: 'Text is required',
+        details: 'Text must be a non-empty string',
+      });
+      return;
+    }
+
+    if (!Array.isArray(body.targetLanguages) || body.targetLanguages.length === 0) {
+      validationErrorsCounter.add(1, { error_type: 'empty_languages' });
+      res.status(400).json({
+        error: 'At least one target language is required',
+        details: 'targetLanguages must be a non-empty array',
+      });
+      return;
+    }
+
+    if (body.targetLanguages.length > 3) {
+      validationErrorsCounter.add(1, { error_type: 'too_many_languages' });
+      res.status(400).json({
+        error: 'Maximum 3 target languages allowed',
+        details: `You requested ${body.targetLanguages.length} languages`,
+      });
+      return;
+    }
+
+    const unsupportedLanguages = body.targetLanguages.filter(
+      (lang) => !SUPPORTED_LANGUAGES.includes(lang as any),
+    );
+
+    if (unsupportedLanguages.length > 0) {
+      validationErrorsCounter.add(1, { error_type: 'invalid_languages' });
+      res.status(400).json({
+        error: `Unsupported language: ${unsupportedLanguages.join(', ')}`,
+        supportedLanguages: [...SUPPORTED_LANGUAGES],
+      });
+      return;
+    }
+
+    const sessionId = uuidv4();
+    const jobs = new Map<string, JobStatus>();
+
+    const jobsList: TranslationJob[] = [];
+    for (const targetLanguage of body.targetLanguages) {
+      const job: TranslationJob = {
+        jobId: uuidv4(),
+        sessionId,
+        text: body.text,
+        sourceLanguage: 'en',
+        targetLanguage,
+        createdAt: new Date().toISOString(),
+      };
+
+      jobsList.push(job);
+      jobs.set(targetLanguage, { status: 'queued' });
+      await queueService.enqueueJob(job);
+      jobsEnqueuedCounter.add(1, { target_language: targetLanguage });
+    }
+
+    const session: TranslationSession = {
+      sessionId,
+      text: body.text,
+      sourceLanguage: 'en',
+      status: 'queued',
+      jobs,
+    };
+    await queueService.saveSession(session);
+
+    const response: TranslateResponse = {
+      sessionId,
+      status: 'queued',
+      jobs: jobsList.map((job) => ({
+        jobId: job.jobId,
+        targetLanguage: job.targetLanguage,
+        status: 'queued',
+      })),
+    };
+
+    // Track request duration
+    requestDuration.record(Date.now() - start, {
+      target_language_count: body.targetLanguages.length.toString(),
+    });
+    // Track successful request
+    translationRequestsCounter.add(1, {
+      status: 'success',
+      language_count: body.targetLanguages.length.toString(),
+    });
+    res.status(201).json(response);
+  } catch (error) {
+    console.error('Error creating translation session:', error);
+    serverErrorsCounter.add(1, { operation: 'create_translation' });
+    res.status(500).json({
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+```
+
+Increment the same 5xx counter in the other route handlers:
+
+```typescript
+// GET /api/translate/:sessionId
+} catch (error) {
+  console.error('Error fetching session:', error);
+  serverErrorsCounter.add(1, { operation: 'get_session' });
+  res.status(500).json({
+    error: 'Internal server error',
+    details: error instanceof Error ? error.message : 'Unknown error',
+  });
+}
+
+// GET /api/translate/:sessionId/events
+} catch (error) {
+  console.error('Error establishing SSE connection:', error);
+  serverErrorsCounter.add(1, { operation: 'session_events' });
+  res.status(500).json({
+    error: 'Internal server error',
+    details: error instanceof Error ? error.message : 'Unknown error',
+  });
+}
+```
+
+## 3. Update `index.ts` & `queue.ts`
+
+```ts index.ts
+import './instrumentation.js';
+
+import express from 'express';
+import cors from 'cors';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import type { Server } from 'http';
+import { QueueService } from './services/queue.js';
+import { SSEManager } from './services/sse.js';
+import { createTranslationRouter } from './routes/translation.js';
+import type { TranslationResult } from './types.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+```
+
+```ts queue.ts
+import { Redis } from 'ioredis';
+
+```
+
+## 4. Deploy
+
+```bash
+cd ../../../compose/
+docker compose -f compose.dev.yaml up --build -d
+```
+
+Note: For development with hot-reload, use `docker compose -f compose.dev.yaml up --build` instead.
+
+## 5. Generate Various Request Types
+
+```bash
+# Successful requests with different language combinations
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello", "targetLanguages": ["es"]}'
+
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Good morning", "targetLanguages": ["es", "fr", "de"]}'
+
+# Validation errors
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "", "targetLanguages": ["es"]}'
+```
+
+## 6. Verify in Prometheus
+
+Query:
+
+- `translation_requests_total` - Request counts by language combination
+- `rate(translation_requests_total[5m])` - Request rate
+- `translation_jobs_enqueued_total{target_language="es"}` - Jobs per language
+- `histogram_quantile(0.95, sum by (le) (rate(translation_request_duration_milliseconds_bucket[5m])))` - 95th percentile latency in milliseconds
+- `histogram_quantile(
+  0.95,
+  sum by (le, target_language_count) (
+    rate(translation_request_duration_milliseconds_bucket[5m])
+  )
+)` - For latency by target-language count:
+- `translation_validation_errors_total` - Validation failures by error type
+- `translation_server_errors_total` - 5xx server errors by operation
+

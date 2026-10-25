@@ -1,13 +1,17 @@
-import './instrumentation';
+import './instrumentation.js';
 
 import express from 'express';
 import cors from 'cors';
-import { join } from 'path';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import type { Server } from 'http';
 import { QueueService } from './services/queue.js';
 import { SSEManager } from './services/sse.js';
 import { createTranslationRouter } from './routes/translation.js';
 import type { TranslationResult } from './types.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Configuration
 const PORT = parseInt(process.env.PORT || '3000', 10);
