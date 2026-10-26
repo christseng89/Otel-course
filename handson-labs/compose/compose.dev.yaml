@@ -20,6 +20,7 @@ services:
       - LOG_LEVEL=debug
       - CHOKIDAR_USEPOLLING=true
       - CHOKIDAR_INTERVAL=1000      
+      - NODE_OPTIONS=--experimental-loader=@opentelemetry/instrumentation/hook.mjs
     command: npm run dev
 
   worker:

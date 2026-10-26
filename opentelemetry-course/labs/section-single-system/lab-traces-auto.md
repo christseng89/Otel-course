@@ -46,6 +46,8 @@ export function initInstrumentation() {
 
   sdk.start();
 }
+
+initInstrumentation();
 ```
 
 **2. Deploy**
