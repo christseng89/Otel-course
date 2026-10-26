@@ -11,16 +11,23 @@ import type {
   JobStatus,
   TranslationSession,
 } from "../types.js";
-import { SUPPORTED_LANGUAGES } from "../types.js";
+
+// Refactoring metrics.js, tracers.js and validation.ts
 import {
-  translationRequestsCounter,
-  jobsEnqueuedCounter,
-  requestDuration,
-  validationErrorsCounter,
-  serverErrorsCounter,
+  recordJobEnqueued,
+  recordRequestDuration,
+  recordServerError,
+  recordTranslationRequest,
+  recordValidationError,
 } from "../metrics.js";
 
-import { setSpanError, tracer, SpanStatusCode } from "../tracers.js";
+import {
+  setSpanError,
+  setSpanAttributes,
+  setSpanSuccess,
+  tracer,
+} from "../tracers.js";
+import { validateTranslationRequest } from "../validation.js";
 
 export interface TranslationRouterDeps {
   queueService: QueueService;
@@ -44,99 +51,39 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
           const targetLanguages = body?.targetLanguages;
 
           // Add business attributes to the session span.
-          sessionSpan.setAttribute(
-            "translation.text_length",
-            typeof text === "string" ? text.length : 0,
-          );
-          sessionSpan.setAttribute(
-            "translation.target_language_count",
-            Array.isArray(targetLanguages) ? targetLanguages.length : 0,
-          );
-          sessionSpan.setAttribute(
-            "translation.target_languages",
-            Array.isArray(targetLanguages) ? targetLanguages : [],
-          );
+          setSpanAttributes(sessionSpan, {
+            "translation.text_length": typeof text === "string" ? text.length : 0,
+            "translation.target_language_count": Array.isArray(targetLanguages)
+              ? targetLanguages.length
+              : 0,
+            "translation.target_languages": Array.isArray(targetLanguages)
+              ? targetLanguages
+              : [],
+          });
 
           // Validation with error tracking and a dedicated business span.
           const validationSucceeded = await tracer.startActiveSpan(
             "validate_request",
             async (validationSpan) => {
               try {
-                // Validate text
-                if (!text || typeof text !== "string" || !text.trim()) {
-                  validationErrorsCounter.add(1, { error_type: "empty_text" });
-                  // validationSpan Error - Empty text
-                  validationSpan.setStatus({
-                    code: SpanStatusCode.ERROR,
-                    message: "Empty text",
-                  });
-                  res.status(400).json({
-                    error: "Text is required",
-                    details: "Text must be a non-empty string",
-                  });
-                  return false;
-                }
-
-                // Validate targetLanguages
-                if (
-                  !Array.isArray(targetLanguages) ||
-                  targetLanguages.length === 0
-                ) {
-                  validationErrorsCounter.add(1, {
-                    error_type: "empty_languages",
-                  });
-                  // validationSpan Error - No target languages
-                  validationSpan.setStatus({
-                    code: SpanStatusCode.ERROR,
-                    message: "No target languages",
-                  });
-                  res.status(400).json({
-                    error: "At least one target language is required",
-                    details: "targetLanguages must be a non-empty array",
-                  });
-                  return false;
-                }
-
-                // Check max languages
-                if (targetLanguages.length > 3) {
-                  validationErrorsCounter.add(1, {
-                    error_type: "too_many_languages",
-                  });
-                  // validationSpan Error - Too many target languages
-                  validationSpan.setStatus({
-                    code: SpanStatusCode.ERROR,
-                    message: "Too many target languages",
-                  });
-                  res.status(400).json({
-                    error: "Maximum 3 target languages allowed",
-                    details: `You requested ${targetLanguages.length} languages`,
-                  });
-                  return false;
-                }
-
-                // Validate each language
-                const unsupportedLanguages = targetLanguages.filter(
-                  (lang) => !SUPPORTED_LANGUAGES.includes(lang as any),
+                const validationError = validateTranslationRequest(
+                  text,
+                  targetLanguages,
                 );
 
-                if (unsupportedLanguages.length > 0) {
-                  validationErrorsCounter.add(1, {
-                    error_type: "invalid_languages",
-                  });
-                  // validationSpan Error - Unsupported languate
-                  validationSpan.setStatus({
-                    code: SpanStatusCode.ERROR,
-                    message: "Unsupported language",
-                  });
-                  res.status(400).json({
-                    error: `Unsupported language: ${unsupportedLanguages.join(", ")}`,
-                    supportedLanguages: [...SUPPORTED_LANGUAGES],
-                  });
+                if (validationError) {
+                  recordValidationError(validationError.errorType);
+                  setSpanError(
+                    validationSpan,
+                    new Error(validationError.spanMessage),
+                  );
+                  res
+                    .status(validationError.statusCode)
+                    .json(validationError.body);
                   return false;
                 }
 
-                // validationSpan OK
-                validationSpan.setStatus({ code: SpanStatusCode.OK });
+                setSpanSuccess(validationSpan);
                 return true;
               } finally {
                 validationSpan.end();
@@ -146,10 +93,7 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
 
           if (!validationSucceeded) {
             // sessionSpan Error - Invalid translation requrest
-            sessionSpan.setStatus({
-              code: SpanStatusCode.ERROR,
-              message: "Invalid translation request",
-            });
+            setSpanError(sessionSpan, new Error("Invalid translation request"));
             return;
           }
 
@@ -161,7 +105,9 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
 
           // Create session
           const sessionId = uuidv4();
-          sessionSpan.setAttribute("translation.session_id", sessionId);
+          setSpanAttributes(sessionSpan, {
+            "translation.session_id": sessionId,
+          });
           const jobs = new Map<string, JobStatus>();
 
           // Create and enqueue jobs
@@ -172,15 +118,10 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
             async (enqueueSpan) => {
               try {
                 // Create and enqueue jobs
-                enqueueSpan.setAttribute(
-                  "translation.jobs_count",
-                  targetLanguages.length,
-                );
-                // Add attribute for targetLanguages
-                enqueueSpan.setAttribute(
-                  "translation.languages",
-                  targetLanguages,
-                );
+                setSpanAttributes(enqueueSpan, {
+                  "translation.jobs_count": targetLanguages.length,
+                  "translation.languages": targetLanguages,
+                });
 
                 const enqueuePromises = targetLanguages.map(
                   (targetLanguage) => {
@@ -199,16 +140,14 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
 
                     // Enqueue job & Track each job enqueued
                     return queueService.enqueueJob(job).then(() => {
-                      jobsEnqueuedCounter.add(1, {
-                        target_language: targetLanguage,
-                      });
+                      recordJobEnqueued(targetLanguage);
                     });
                   },
                 );
                 await Promise.all(enqueuePromises);
 
                 // enqueueSpan OK
-                enqueueSpan.setStatus({ code: SpanStatusCode.OK });
+                setSpanSuccess(enqueueSpan);
               } catch (error) {
                 setSpanError(enqueueSpan, error);
                 throw error;
@@ -245,30 +184,17 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
           );
 
           // Track request duration
-          requestDuration.record(Date.now() - start, {
-            target_language_count: targetLanguages.length.toString(),
-          });
+          recordRequestDuration(Date.now() - start, targetLanguages.length);
           // Track successful request
-          translationRequestsCounter.add(1, {
-            status: "success",
-            language_count: targetLanguages.length.toString(),
-          });
+          recordTranslationRequest("success", targetLanguages.length);
 
           // sessionSpan OK
-          sessionSpan.setStatus({ code: SpanStatusCode.OK });
+          setSpanSuccess(sessionSpan);
           res.status(201).json(response);
         } catch (error) {
           console.error("Error creating translation session:", error);
-          sessionSpan.recordException(
-            error instanceof Error ? error : String(error),
-          );
-
-          // sessionSpan Error - error.message
-          sessionSpan.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: error instanceof Error ? error.message : String(error),
-          });
-          serverErrorsCounter.add(1, { operation: "create_translation" });
+          setSpanError(sessionSpan, error);
+          recordServerError("create_translation");
           res.status(500).json({
             error: "Internal server error",
             details: error instanceof Error ? error.message : "Unknown error",
@@ -308,7 +234,7 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
       res.json(response);
     } catch (error) {
       console.error("Error fetching session:", error);
-      serverErrorsCounter.add(1, { operation: "get_session" });
+      recordServerError("get_session");
       res.status(500).json({
         error: "Internal server error",
         details: error instanceof Error ? error.message : "Unknown error",
@@ -335,7 +261,7 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
       console.log(`Client connected to SSE for session ${sessionId}`);
     } catch (error) {
       console.error("Error establishing SSE connection:", error);
-      serverErrorsCounter.add(1, { operation: "session_events" });
+      recordServerError("session_events");
       res.status(500).json({
         error: "Internal server error",
         details: error instanceof Error ? error.message : "Unknown error",
