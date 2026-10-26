@@ -638,3 +638,326 @@ Click on Redis spans, verify:
 - `db.system: redis`
 - `db.operation: LPUSH` or `HSET`
 - `db.statement` (the actual Redis command)
+
+---
+
+# Traces - Manual Instrumenting
+
+- Refer to `lab-traces-manual.md`
+
+## 0. Create `tracers.ts`
+
+```ts
+import { trace, SpanStatusCode } from '@opentelemetry/api';
+
+export { SpanStatusCode };
+export const tracer = trace.getTracer('translation-frontend', '1.0.0');
+
+```
+
+## 1. Update `routes/translation.ts`
+
+Add tracer import and create manual spans:
+
+```typescript
+import { tracer, SpanStatusCode } from '../tracers.js'
+//...
+  // POST /api/translate - Submit translation request
+  router.post("/", async (req: Request, res: Response) => {
+    await tracer.startActiveSpan(
+      "create_translation_session",
+      async (sessionSpan) => {
+        const start = Date.now();
+        const body = req.body as TranslateRequest;
+
+        try {
+          const text = body?.text;
+          const targetLanguages = body?.targetLanguages;
+
+          // Add business attributes to the session span.
+          sessionSpan.setAttribute(
+            "translation.text_length",
+            typeof text === "string" ? text.length : 0,
+          );
+          sessionSpan.setAttribute(
+            "translation.target_language_count",
+            Array.isArray(targetLanguages) ? targetLanguages.length : 0,
+          );
+          sessionSpan.setAttribute(
+            "translation.target_languages",
+            Array.isArray(targetLanguages) ? targetLanguages : [],
+          );
+
+          // Validation with error tracking and a dedicated business span.
+          const validationSucceeded = await tracer.startActiveSpan(
+            "validate_request",
+            async (validationSpan) => {
+              try {
+                // Validate text
+                if (!text || typeof text !== "string" || !text.trim()) {
+                  validationErrorsCounter.add(1, { error_type: "empty_text" });
+                  // validationSpan Error - Empty text
+                  validationSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: "Empty text",
+                  });
+                  res.status(400).json({
+                    error: "Text is required",
+                    details: "Text must be a non-empty string",
+                  });
+                  return false;
+                }
+
+                // Validate targetLanguages
+                if (!Array.isArray(targetLanguages) || targetLanguages.length === 0) {
+                  validationErrorsCounter.add(1, { error_type: "empty_languages" });
+                  // validationSpan Error - No target languages
+                  validationSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: "No target languages",
+                  });
+                  res.status(400).json({
+                    error: "At least one target language is required",
+                    details: "targetLanguages must be a non-empty array",
+                  });
+                  return false;
+                }
+
+                // Check max languages
+                if (targetLanguages.length > 3) {
+                  validationErrorsCounter.add(1, { error_type: "too_many_languages" });
+                  // validationSpan Error - Too many target languages
+                  validationSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: "Too many target languages",
+                  });
+                  res.status(400).json({
+                    error: "Maximum 3 target languages allowed",
+                    details: `You requested ${targetLanguages.length} languages`,
+                  });
+                  return false;
+                }
+
+                // Validate each language
+                const unsupportedLanguages = targetLanguages.filter(
+                  (lang) => !SUPPORTED_LANGUAGES.includes(lang as any),
+                );
+
+                if (unsupportedLanguages.length > 0) {
+                  validationErrorsCounter.add(1, { error_type: "invalid_languages" });
+                  // validationSpan Error - Unsupported languate
+                  validationSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: "Unsupported language",
+                  });
+                  res.status(400).json({
+                    error: `Unsupported language: ${unsupportedLanguages.join(", ")}`,
+                    supportedLanguages: [...SUPPORTED_LANGUAGES],
+                  });
+                  return false;
+                }
+
+                // validationSpan OK
+                validationSpan.setStatus({ code: SpanStatusCode.OK });
+                return true;
+              } finally {
+                validationSpan.end();
+              }
+            },
+          );
+
+          if (!validationSucceeded) {
+            // sessionSpan Error - Invalid translation requrest
+            sessionSpan.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: "Invalid translation request",
+            });
+            return;
+          }
+
+          // TypeScript can narrow these values after the validation span, but
+          // keep the guard explicit because the validation runs asynchronously.
+          if (typeof text !== "string" || !Array.isArray(targetLanguages)) {
+            return;
+          }
+
+          // Create session
+          const sessionId = uuidv4();
+          sessionSpan.setAttribute("translation.session_id", sessionId);
+          const jobs = new Map<string, JobStatus>();
+          
+          // Create and enqueue jobs
+          const jobsList: TranslationJob[] = [];
+
+          await tracer.startActiveSpan(
+            "enqueue_translation_jobs",
+            async (enqueueSpan) => {
+              try {
+                // Create and enqueue jobs
+                enqueueSpan.setAttribute(
+                  "translation.jobs_count",
+                  targetLanguages.length,
+                );
+
+                const enqueuePromises = targetLanguages.map((targetLanguage) => {
+                  const jobId = uuidv4();
+                  const job: TranslationJob = {
+                    jobId,
+                    sessionId,
+                    text,
+                    sourceLanguage: "en",
+                    targetLanguage,
+                    createdAt: new Date().toISOString(),
+                  };
+
+                  jobsList.push(job);
+                  jobs.set(targetLanguage, { status: "queued" });
+
+                  // Enqueue job & Track each job enqueued
+                  return queueService.enqueueJob(job).then(() => {
+                    jobsEnqueuedCounter.add(1, { target_language: targetLanguage });
+                  });
+                });
+                await Promise.all(enqueuePromises);
+
+                // enqueueSpan OK
+                enqueueSpan.setStatus({ code: SpanStatusCode.OK });
+              } catch (error) {
+                enqueueSpan.recordException(
+                  error instanceof Error ? error : String(error),
+                );
+
+                // enqueueSpan Error - error.message
+                enqueueSpan.setStatus({
+                  code: SpanStatusCode.ERROR,
+                  message: error instanceof Error ? error.message : String(error),
+                });
+                throw error;
+              } finally {
+                enqueueSpan.end();
+              }
+            },
+          );
+
+          // Save session
+          const session: TranslationSession = {
+            sessionId,
+            text,
+            sourceLanguage: "en",
+            status: "queued",
+            jobs,
+          };
+
+          await queueService.saveSession(session);
+
+          // Return response
+          const response: TranslateResponse = {
+            sessionId,
+            status: "queued",
+            jobs: jobsList.map((job) => ({
+              jobId: job.jobId,
+              targetLanguage: job.targetLanguage,
+              status: "queued",
+            })),
+          };
+
+          console.log(
+            `Created translation session ${sessionId} with ${jobsList.length} jobs`,
+          );
+
+          // Track request duration
+          requestDuration.record(Date.now() - start, {
+            target_language_count: targetLanguages.length.toString(),
+          });
+          // Track successful request
+          translationRequestsCounter.add(1, {
+            status: "success",
+            language_count: targetLanguages.length.toString(),
+          });
+
+          // sessionSpan OK
+          sessionSpan.setStatus({ code: SpanStatusCode.OK });
+          res.status(201).json(response);
+        } catch (error) {
+          console.error("Error creating translation session:", error);
+          sessionSpan.recordException(
+            error instanceof Error ? error : String(error),
+          );
+
+          // sessionSpan Error - error.message
+          sessionSpan.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          serverErrorsCounter.add(1, { operation: "create_translation" });
+          res.status(500).json({
+            error: "Internal server error",
+            details: error instanceof Error ? error.message : "Unknown error",
+          });
+        } finally {
+          sessionSpan.end();
+        }
+      },
+    );
+
+  });
+```
+
+## 2. Deploy
+
+```bash
+cd handson-labs/compose/
+docker compose -f compose.dev.yaml up --build -d
+```
+
+Note: For development with hot-reload, use `docker compose -f compose.dev.yaml up --build` instead.
+
+## 3. Generate Traffic
+
+```bash
+# Successful request
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello world", "targetLanguages": ["es", "fr", "de"]}'
+
+# Validation error
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "", "targetLanguages": ["es"]}'
+
+docker compose -f compose.dev.yaml logs frontend
+```
+
+## 4. Verify in Grafana Tempo
+
+Search for traces, expect enriched hierarchy:
+
+```text
+POST /api/translate (auto)
+  └─ create_translation_session (manual)
+       ├─ validate_request (manual)
+       └─ enqueue_translation_jobs (manual)
+            ├─ Redis LPUSH (auto) - es
+            ├─ Redis LPUSH (auto) - fr
+            └─ Redis LPUSH (auto) - de
+
+HTTP request
+└── sessionSpan: create_translation_session
+    ├── validationSpan: validate_request
+    └── enqueueSpan: enqueue_translation_jobs            
+```
+
+## 5. Examine Custom Attributes
+
+Click on `create_translation_session` span:
+
+- `translation.text_length`
+- `translation.target_language_count`
+- `translation.target_languages`
+- `translation.session_id`
+
+Click on `enqueue_translation_jobs` span:
+
+- `translation.jobs_count`
+
+---

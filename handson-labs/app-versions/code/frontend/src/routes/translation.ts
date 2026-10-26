@@ -20,6 +20,8 @@ import {
   serverErrorsCounter,
 } from "../metrics.js";
 
+import { tracer, SpanStatusCode } from "../tracers.js";
+
 export interface TranslationRouterDeps {
   queueService: QueueService;
   sseManager: SSEManager;
@@ -31,127 +33,260 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
 
   // POST /api/translate - Submit translation request
   router.post("/", async (req: Request, res: Response) => {
-    try {
-      const start = Date.now();
-      const body = req.body as TranslateRequest;
+    await tracer.startActiveSpan(
+      "create_translation_session",
+      async (sessionSpan) => {
+        const start = Date.now();
+        const body = req.body as TranslateRequest;
 
-      // Validation with error tracking
-      if (!body.text || typeof body.text !== "string" || !body.text.trim()) {
-        validationErrorsCounter.add(1, { error_type: "empty_text" });
-        res.status(400).json({
-          error: "Text is required",
-          details: "Text must be a non-empty string",
-        });
-        return;
-      }
+        try {
+          const text = body?.text;
+          const targetLanguages = body?.targetLanguages;
 
-      // Validate targetLanguages
-      if (
-        !Array.isArray(body.targetLanguages) ||
-        body.targetLanguages.length === 0
-      ) {
-        validationErrorsCounter.add(1, { error_type: "empty_languages" });
-        res.status(400).json({
-          error: "At least one target language is required",
-          details: "targetLanguages must be a non-empty array",
-        });
-        return;
-      }
+          // Add business attributes to the session span.
+          sessionSpan.setAttribute(
+            "translation.text_length",
+            typeof text === "string" ? text.length : 0,
+          );
+          sessionSpan.setAttribute(
+            "translation.target_language_count",
+            Array.isArray(targetLanguages) ? targetLanguages.length : 0,
+          );
+          sessionSpan.setAttribute(
+            "translation.target_languages",
+            Array.isArray(targetLanguages) ? targetLanguages : [],
+          );
 
-      // Check max languages
-      if (body.targetLanguages.length > 3) {
-        validationErrorsCounter.add(1, { error_type: "too_many_languages" });
-        res.status(400).json({
-          error: "Maximum 3 target languages allowed",
-          details: `You requested ${body.targetLanguages.length} languages`,
-        });
-        return;
-      }
+          // Validation with error tracking and a dedicated business span.
+          const validationSucceeded = await tracer.startActiveSpan(
+            "validate_request",
+            async (validationSpan) => {
+              try {
+                // Validate text
+                if (!text || typeof text !== "string" || !text.trim()) {
+                  validationErrorsCounter.add(1, { error_type: "empty_text" });
+                  // validationSpan Error - Empty text
+                  validationSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: "Empty text",
+                  });
+                  res.status(400).json({
+                    error: "Text is required",
+                    details: "Text must be a non-empty string",
+                  });
+                  return false;
+                }
 
-      // Validate each language
-      const unsupportedLanguages = body.targetLanguages.filter(
-        (lang) => !SUPPORTED_LANGUAGES.includes(lang as any),
-      );
+                // Validate targetLanguages
+                if (
+                  !Array.isArray(targetLanguages) ||
+                  targetLanguages.length === 0
+                ) {
+                  validationErrorsCounter.add(1, {
+                    error_type: "empty_languages",
+                  });
+                  // validationSpan Error - No target languages
+                  validationSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: "No target languages",
+                  });
+                  res.status(400).json({
+                    error: "At least one target language is required",
+                    details: "targetLanguages must be a non-empty array",
+                  });
+                  return false;
+                }
 
-      if (unsupportedLanguages.length > 0) {
-        validationErrorsCounter.add(1, { error_type: "invalid_languages" });
-        res.status(400).json({
-          error: `Unsupported language: ${unsupportedLanguages.join(", ")}`,
-          supportedLanguages: [...SUPPORTED_LANGUAGES],
-        });
-        return;
-      }
+                // Check max languages
+                if (targetLanguages.length > 3) {
+                  validationErrorsCounter.add(1, {
+                    error_type: "too_many_languages",
+                  });
+                  // validationSpan Error - Too many target languages
+                  validationSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: "Too many target languages",
+                  });
+                  res.status(400).json({
+                    error: "Maximum 3 target languages allowed",
+                    details: `You requested ${targetLanguages.length} languages`,
+                  });
+                  return false;
+                }
 
-      // Create session
-      const sessionId = uuidv4();
-      const jobs = new Map<string, JobStatus>();
+                // Validate each language
+                const unsupportedLanguages = targetLanguages.filter(
+                  (lang) => !SUPPORTED_LANGUAGES.includes(lang as any),
+                );
 
-      // Create and enqueue jobs
-      const jobsList: TranslationJob[] = [];
+                if (unsupportedLanguages.length > 0) {
+                  validationErrorsCounter.add(1, {
+                    error_type: "invalid_languages",
+                  });
+                  // validationSpan Error - Unsupported languate
+                  validationSpan.setStatus({
+                    code: SpanStatusCode.ERROR,
+                    message: "Unsupported language",
+                  });
+                  res.status(400).json({
+                    error: `Unsupported language: ${unsupportedLanguages.join(", ")}`,
+                    supportedLanguages: [...SUPPORTED_LANGUAGES],
+                  });
+                  return false;
+                }
 
-      for (const targetLanguage of body.targetLanguages) {
-        const jobId = uuidv4();
-        const job: TranslationJob = {
-          jobId,
-          sessionId,
-          text: body.text,
-          sourceLanguage: "en",
-          targetLanguage,
-          createdAt: new Date().toISOString(),
-        };
+                // validationSpan OK
+                validationSpan.setStatus({ code: SpanStatusCode.OK });
+                return true;
+              } finally {
+                validationSpan.end();
+              }
+            },
+          );
 
-        jobsList.push(job);
-        jobs.set(targetLanguage, { status: "queued" });
+          if (!validationSucceeded) {
+            // sessionSpan Error - Invalid translation requrest
+            sessionSpan.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: "Invalid translation request",
+            });
+            return;
+          }
 
-        // Enqueue job & Track each job enqueued
-        await queueService.enqueueJob(job);
-        jobsEnqueuedCounter.add(1, { target_language: targetLanguage });
-      }
+          // TypeScript can narrow these values after the validation span, but
+          // keep the guard explicit because the validation runs asynchronously.
+          if (typeof text !== "string" || !Array.isArray(targetLanguages)) {
+            return;
+          }
 
-      // Save session
-      const session: TranslationSession = {
-        sessionId,
-        text: body.text,
-        sourceLanguage: "en",
-        status: "queued",
-        jobs,
-      };
+          // Create session
+          const sessionId = uuidv4();
+          sessionSpan.setAttribute("translation.session_id", sessionId);
+          const jobs = new Map<string, JobStatus>();
 
-      await queueService.saveSession(session);
+          // Create and enqueue jobs
+          const jobsList: TranslationJob[] = [];
 
-      // Return response
-      const response: TranslateResponse = {
-        sessionId,
-        status: "queued",
-        jobs: jobsList.map((job) => ({
-          jobId: job.jobId,
-          targetLanguage: job.targetLanguage,
-          status: "queued",
-        })),
-      };
+          await tracer.startActiveSpan(
+            "enqueue_translation_jobs",
+            async (enqueueSpan) => {
+              try {
+                // Create and enqueue jobs
+                enqueueSpan.setAttribute(
+                  "translation.jobs_count",
+                  targetLanguages.length,
+                );
+                // Add attribute for targetLanguages
+                enqueueSpan.setAttribute(
+                  "translation.languages",
+                  targetLanguages,
+                );
 
-      console.log(
-        `Created translation session ${sessionId} with ${jobsList.length} jobs`,
-      );
+                const enqueuePromises = targetLanguages.map(
+                  (targetLanguage) => {
+                    const jobId = uuidv4();
+                    const job: TranslationJob = {
+                      jobId,
+                      sessionId,
+                      text,
+                      sourceLanguage: "en",
+                      targetLanguage,
+                      createdAt: new Date().toISOString(),
+                    };
 
-      // Track request duration
-      requestDuration.record(Date.now() - start, {
-        target_language_count: body.targetLanguages.length.toString(),
-      });
-      // Track successful request
-      translationRequestsCounter.add(1, {
-        status: "success",
-        language_count: body.targetLanguages.length.toString(),
-      });
-      res.status(201).json(response);
-    } catch (error) {
-      console.error("Error creating translation session:", error);
-      serverErrorsCounter.add(1, { operation: "create_translation" });
-      res.status(500).json({
-        error: "Internal server error",
-        details: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
+                    jobsList.push(job);
+                    jobs.set(targetLanguage, { status: "queued" });
+
+                    // Enqueue job & Track each job enqueued
+                    return queueService.enqueueJob(job).then(() => {
+                      jobsEnqueuedCounter.add(1, {
+                        target_language: targetLanguage,
+                      });
+                    });
+                  },
+                );
+                await Promise.all(enqueuePromises);
+
+                // enqueueSpan OK
+                enqueueSpan.setStatus({ code: SpanStatusCode.OK });
+              } catch (error) {
+                enqueueSpan.recordException(
+                  error instanceof Error ? error : String(error),
+                );
+
+                // enqueueSpan Error - error.message
+                enqueueSpan.setStatus({
+                  code: SpanStatusCode.ERROR,
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                });
+                throw error;
+              } finally {
+                enqueueSpan.end();
+              }
+            },
+          );
+
+          // Save session
+          const session: TranslationSession = {
+            sessionId,
+            text,
+            sourceLanguage: "en",
+            status: "queued",
+            jobs,
+          };
+
+          await queueService.saveSession(session);
+
+          // Return response
+          const response: TranslateResponse = {
+            sessionId,
+            status: "queued",
+            jobs: jobsList.map((job) => ({
+              jobId: job.jobId,
+              targetLanguage: job.targetLanguage,
+              status: "queued",
+            })),
+          };
+
+          console.log(
+            `Created translation session ${sessionId} with ${jobsList.length} jobs`,
+          );
+
+          // Track request duration
+          requestDuration.record(Date.now() - start, {
+            target_language_count: targetLanguages.length.toString(),
+          });
+          // Track successful request
+          translationRequestsCounter.add(1, {
+            status: "success",
+            language_count: targetLanguages.length.toString(),
+          });
+
+          // sessionSpan OK
+          sessionSpan.setStatus({ code: SpanStatusCode.OK });
+          res.status(201).json(response);
+        } catch (error) {
+          console.error("Error creating translation session:", error);
+          sessionSpan.recordException(
+            error instanceof Error ? error : String(error),
+          );
+
+          // sessionSpan Error - error.message
+          sessionSpan.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          serverErrorsCounter.add(1, { operation: "create_translation" });
+          res.status(500).json({
+            error: "Internal server error",
+            details: error instanceof Error ? error.message : "Unknown error",
+          });
+        } finally {
+          sessionSpan.end();
+        }
+      },
+    );
   });
 
   // GET /api/translate/:sessionId - Get session status

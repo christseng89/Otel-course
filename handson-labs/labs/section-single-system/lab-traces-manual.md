@@ -24,7 +24,7 @@ router.post('/', async (req, res) => {
     'create_translation_session',
     async (sessionSpan) => {
       try {
-        const { text, targetLanguages } = req.body;
+        const { text, targetLanguages } = body;
 
         // Add business attributes
         sessionSpan.setAttribute('translation.text_length', text.length);
