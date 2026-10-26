@@ -20,7 +20,7 @@ import {
   serverErrorsCounter,
 } from "../metrics.js";
 
-import { tracer, SpanStatusCode } from "../tracers.js";
+import { setSpanError, tracer, SpanStatusCode } from "../tracers.js";
 
 export interface TranslationRouterDeps {
   queueService: QueueService;
@@ -210,16 +210,7 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
                 // enqueueSpan OK
                 enqueueSpan.setStatus({ code: SpanStatusCode.OK });
               } catch (error) {
-                enqueueSpan.recordException(
-                  error instanceof Error ? error : String(error),
-                );
-
-                // enqueueSpan Error - error.message
-                enqueueSpan.setStatus({
-                  code: SpanStatusCode.ERROR,
-                  message:
-                    error instanceof Error ? error.message : String(error),
-                });
+                setSpanError(enqueueSpan, error);
                 throw error;
               } finally {
                 enqueueSpan.end();
