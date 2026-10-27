@@ -805,8 +805,12 @@ logger.info('SSE connection established', {
 
 ```prompt
 In the hands-on folder, under labs/section-single-system/lab-logs-manual.md you will find a couple of examples of meaningful business context logs to add to the frontend application (under app-versions/code/frontend). Your task is simple: go through the code and add relevant log statements where you see fit. Use the correct log level. Implement one file at a time, and pause for feedback.
-
 ```
+
+```prompt
+It seems that there is still work to be done. Go through all the files of the frontend application and identify places where logs can add value. Implement these logs. Go beyond the scope of the lab (the lab was just for the sake of providing implementation examples).
+```
+
 ## 3. Deploy
 
 ```bash
@@ -856,6 +860,12 @@ Query for specific session:
 {service_name="translation-frontend"} | session_id="<paste-session-id-here>"
 ```
 
+Query for Tracer Id
+
+```logql
+{service_name="translation-frontend"} | trace_id != ""
+```
+
 ## 6. Practice Log-to-Trace Correlation
 
 1. Find a "Translation session created" log
@@ -863,5 +873,38 @@ Query for specific session:
 3. Click the `trace_id` link → opens the trace
 4. In trace, find the `create_translation_session` span
 5. Verify the span has the same `translation.session_id` attribute
+
+---
+
+# SSE（Server-Sent Events，伺服器發送事件）
+
+SSE 是一種讓伺服器可以持續、即時將事件推送給瀏覽器的技術。
+
+在這個翻譯應用程式中：
+
+1. 瀏覽器建立 SSE 連線：
+
+```text
+GET /api/translate/:sessionId/events
+```
+
+2. 伺服器保持連線開啟。
+3. 翻譯工作完成或失敗時，伺服器主動傳送事件：
+
+```text
+translation_complete
+translation_error
+session_complete
+```
+
+4. 瀏覽器收到事件後，更新翻譯進度或結果。
+
+SSE 是單向通訊：
+
+```text
+伺服器 → 瀏覽器
+```
+
+如果需要雙向即時通訊，通常會使用 WebSocket。 單獨使用 curl POST 不會建立 SSE 連線。
 
 ---

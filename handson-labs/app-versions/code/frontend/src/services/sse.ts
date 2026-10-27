@@ -44,6 +44,10 @@ export class SSEManager {
     const connections = this.connections.get(sessionId);
 
     if (!connections || connections.size === 0) {
+      logger.debug('SSE event skipped because no clients are connected', {
+        sessionId,
+        event,
+      });
       return;
     }
 
@@ -116,6 +120,12 @@ export class SSEManager {
   }
 
   closeAll(): void {
+    const sessionCount = this.connections.size;
+    const connectionCount = Array.from(this.connections.values()).reduce(
+      (total, connections) => total + connections.size,
+      0,
+    );
+
     for (const [sessionId, connections] of this.connections.entries()) {
       for (const res of connections) {
         if (!res.writableEnded) {
@@ -124,6 +134,9 @@ export class SSEManager {
       }
     }
     this.connections.clear();
-    logger.info('All SSE connections closed');
+    logger.info('All SSE connections closed', {
+      sessionCount,
+      connectionCount,
+    });
   }
 }

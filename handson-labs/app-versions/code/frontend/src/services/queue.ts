@@ -56,6 +56,12 @@ export class QueueService {
 
   async enqueueJob(job: TranslationJob): Promise<void> {
     if (!this.client) {
+      logger.error('Queue service is not connected', {
+        operation: 'enqueueJob',
+        jobId: job.jobId,
+        sessionId: job.sessionId,
+        targetLanguage: job.targetLanguage,
+      });
       throw new Error('QueueService not connected');
     }
     const jobJson = JSON.stringify(job);
@@ -71,6 +77,9 @@ export class QueueService {
     callback: (result: TranslationResult) => void,
   ): Promise<void> {
     if (!this.subscriber) {
+      logger.error('Queue service is not connected', {
+        operation: 'subscribeToResults',
+      });
       throw new Error('QueueService not connected');
     }
 
@@ -98,6 +107,10 @@ export class QueueService {
 
   async saveSession(session: TranslationSession): Promise<void> {
     if (!this.client) {
+      logger.error('Queue service is not connected', {
+        operation: 'saveSession',
+        sessionId: session.sessionId,
+      });
       throw new Error('QueueService not connected');
     }
 
@@ -121,11 +134,16 @@ export class QueueService {
     logger.info('Translation session saved', {
       sessionId: session.sessionId,
       jobCount: session.jobs.size,
+      status: session.status,
     });
   }
 
   async getSession(sessionId: string): Promise<TranslationSession | null> {
     if (!this.client) {
+      logger.error('Queue service is not connected', {
+        operation: 'getSession',
+        sessionId,
+      });
       throw new Error('QueueService not connected');
     }
 
@@ -168,6 +186,12 @@ export class QueueService {
     error?: string,
   ): Promise<void> {
     if (!this.client) {
+      logger.error('Queue service is not connected', {
+        operation: 'updateJobStatus',
+        sessionId,
+        targetLanguage: language,
+        status,
+      });
       throw new Error('QueueService not connected');
     }
 
@@ -206,6 +230,8 @@ export class QueueService {
       sessionId,
       targetLanguage: language,
       status,
+      completedJobs,
+      totalJobs,
     });
   }
 

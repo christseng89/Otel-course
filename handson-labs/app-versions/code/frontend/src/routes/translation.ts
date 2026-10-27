@@ -162,6 +162,12 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
                 // enqueueSpan OK
                 setSpanSuccess(enqueueSpan);
               } catch (error) {
+                logger.error("Error enqueueing translation jobs", {
+                  sessionId,
+                  targetLanguages,
+                  error: error instanceof Error ? error.message : String(error),
+                  stack: error instanceof Error ? error.stack : undefined,
+                });
                 setSpanError(enqueueSpan, error);
                 throw error;
               } finally {
@@ -239,6 +245,10 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
       const session = await queueService.getSession(sessionId);
 
       if (!session) {
+        logger.warn("Translation session not found", {
+          sessionId,
+          statusCode: 404,
+        });
         res.status(404).json({ error: "Session not found" });
         return;
       }
@@ -280,6 +290,10 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
       const session = await queueService.getSession(sessionId);
 
       if (!session) {
+        logger.warn("SSE session not found", {
+          sessionId,
+          statusCode: 404,
+        });
         res.status(404).json({ error: "Session not found" });
         return;
       }
