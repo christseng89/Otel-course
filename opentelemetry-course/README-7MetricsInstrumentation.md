@@ -424,7 +424,7 @@ npm install --save-exact \
   @opentelemetry/auto-instrumentations-node@0.70.1 \
   @opentelemetry/exporter-metrics-otlp-http@0.212.0
 ```
-## 2. Create `src/instrumentation.ts`
+## 2. Create `instrumentation.ts`
 
 ```typescript
 import { NodeSDK } from '@opentelemetry/sdk-node';
@@ -446,7 +446,7 @@ const sdk = new NodeSDK({
 sdk.start();
 ```
 
-## 3. Update `src/index.ts`
+## 3. Update `index.ts`
 
 Add at the very top (before any other imports):
 
@@ -762,13 +762,7 @@ Query:
 - `translation_requests_total` - Request counts by language combination
 - `rate(translation_requests_total[5m])` - Request rate
 - `translation_jobs_enqueued_total{target_language="es"}` - Jobs per language
-- `histogram_quantile(0.95, sum by (le) (rate(translation_request_duration_milliseconds_bucket[5m])))` - 95th percentile latency in milliseconds
-- `histogram_quantile(
-  0.95,
-  sum by (le, target_language_count) (
-    rate(translation_request_duration_milliseconds_bucket[5m])
-  )
-)` - For latency by target-language count:
+- `histogram_quantile(0.95, (rate(translation_request_duration_milliseconds_bucket[5m])))` - 95th percentile latency in milliseconds
 - `translation_validation_errors_total` - Validation failures by error type
 - `translation_server_errors_total` - 5xx server errors by operation
 

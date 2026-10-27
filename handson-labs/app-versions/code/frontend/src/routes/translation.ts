@@ -29,6 +29,8 @@ import {
 } from "../tracers.js";
 import { validateTranslationRequest } from "../validation.js";
 
+import { logger } from "../logger.js";
+
 export interface TranslationRouterDeps {
   queueService: QueueService;
   sseManager: SSEManager;
@@ -52,7 +54,8 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
 
           // Add business attributes to the session span.
           setSpanAttributes(sessionSpan, {
-            "translation.text_length": typeof text === "string" ? text.length : 0,
+            "translation.text_length":
+              typeof text === "string" ? text.length : 0,
             "translation.target_language_count": Array.isArray(targetLanguages)
               ? targetLanguages.length
               : 0,
@@ -72,6 +75,10 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
                 );
 
                 if (validationError) {
+                  logger.warn("Validation failed", {
+                    reason: validationError.errorType,
+                    ip: req.ip,
+                  });
                   recordValidationError(validationError.errorType);
                   setSpanError(
                     validationSpan,
@@ -138,8 +145,14 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
                     jobsList.push(job);
                     jobs.set(targetLanguage, { status: "queued" });
 
-                    // Enqueue job & Track each job enqueued
+                    // Enqueue job and log each successfully enqueued job.
                     return queueService.enqueueJob(job).then(() => {
+                      logger.info('Translation job enqueued', {
+                        job_id: jobId,
+                        session_id: sessionId,
+                        target_language: targetLanguage,
+                        queue: 'translation_queue',
+                      });
                       recordJobEnqueued(targetLanguage);
                     });
                   },
@@ -179,20 +192,32 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
             })),
           };
 
-          console.log(
-            `Created translation session ${sessionId} with ${jobsList.length} jobs`,
-          );
-
+          logger.info("Translation session created", {
+            session_id: sessionId,
+            text_length: text.length,
+            target_languages: targetLanguages,
+            language_count: targetLanguages.length,
+          });
           // Track request duration
           recordRequestDuration(Date.now() - start, targetLanguages.length);
           // Track successful request
           recordTranslationRequest("success", targetLanguages.length);
 
+          // Log session ready
+          logger.info('Translation session ready', {
+            session_id: sessionId,
+            jobs_count: targetLanguages.length,
+            status: 'queued',
+          });
+
           // sessionSpan OK
           setSpanSuccess(sessionSpan);
           res.status(201).json(response);
         } catch (error) {
-          console.error("Error creating translation session:", error);
+          logger.error("Error creating translation session", {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          });
           setSpanError(sessionSpan, error);
           recordServerError("create_translation");
           res.status(500).json({
@@ -233,7 +258,11 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
 
       res.json(response);
     } catch (error) {
-      console.error("Error fetching session:", error);
+      logger.error("Error fetching session", {
+        sessionId: req.params.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       recordServerError("get_session");
       res.status(500).json({
         error: "Internal server error",
@@ -258,9 +287,16 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
       // Add SSE connection
       sseManager.addConnection(sessionId, res);
 
-      console.log(`Client connected to SSE for session ${sessionId}`);
+      logger.info("SSE connection established", {
+        session_id: sessionId,
+        ip: req.ip,
+      });
     } catch (error) {
-      console.error("Error establishing SSE connection:", error);
+      logger.error("Error establishing SSE connection", {
+        sessionId: req.params.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       recordServerError("session_events");
       res.status(500).json({
         error: "Internal server error",
