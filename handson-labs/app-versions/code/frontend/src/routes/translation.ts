@@ -147,12 +147,15 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
 
                     // Enqueue job and log each successfully enqueued job.
                     return queueService.enqueueJob(job).then(() => {
-                      logger.info('Translation job enqueued', {
-                        job_id: jobId,
-                        session_id: sessionId,
-                        target_language: targetLanguage,
-                        queue: 'translation_queue',
-                      });
+                      logger.info(
+                        `Translation job accepted for processing - ${targetLanguage}`,
+                        {
+                          job_id: jobId,
+                          session_id: sessionId,
+                          target_language: targetLanguage,
+                          queue: "translation_queue",
+                        },
+                      );
                       recordJobEnqueued(targetLanguage);
                     });
                   },
@@ -185,6 +188,13 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
             jobs,
           };
 
+          logger.info("Translation session created", {
+            session_id: sessionId,
+            text_length: text.length,
+            target_languages: targetLanguages,
+            language_count: targetLanguages.length,
+          });
+
           await queueService.saveSession(session);
 
           // Return response
@@ -198,22 +208,16 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
             })),
           };
 
-          logger.info("Translation session created", {
-            session_id: sessionId,
-            text_length: text.length,
-            target_languages: targetLanguages,
-            language_count: targetLanguages.length,
-          });
           // Track request duration
           recordRequestDuration(Date.now() - start, targetLanguages.length);
           // Track successful request
           recordTranslationRequest("success", targetLanguages.length);
 
           // Log session ready
-          logger.info('Translation session ready', {
+          logger.info("Translation session ready", {
             session_id: sessionId,
             jobs_count: targetLanguages.length,
-            status: 'queued',
+            status: "queued",
           });
 
           // sessionSpan OK

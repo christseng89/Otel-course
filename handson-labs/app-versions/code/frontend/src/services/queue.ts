@@ -1,11 +1,11 @@
-import { Redis } from 'ioredis';
+import { Redis } from "ioredis";
 import type {
   TranslationJob,
   TranslationResult,
   TranslationSession,
   JobStatus,
-} from '../types.js';
-import { logger } from '../logger.js';
+} from "../types.js";
+import { logger } from "../logger.js";
 
 export interface QueueServiceConfig {
   host: string;
@@ -18,9 +18,9 @@ export class QueueService {
   private client: RedisClient | null = null;
   private subscriber: RedisClient | null = null;
   private config: QueueServiceConfig;
-  private readonly queueKey = 'translation:queue';
-  private readonly resultChannel = 'translation:results';
-  private readonly sessionKeyPrefix = 'translation:session:';
+  private readonly queueKey = "translation:queue";
+  private readonly resultChannel = "translation:results";
+  private readonly sessionKeyPrefix = "translation:session:";
 
   constructor(config: QueueServiceConfig) {
     this.config = config;
@@ -48,7 +48,7 @@ export class QueueService {
     // Wait for connections
     await Promise.all([this.client.ping(), this.subscriber.ping()]);
 
-    logger.info('Queue service connected to Redis', {
+    logger.info("Queue service connected to Redis", {
       host: this.config.host,
       port: this.config.port,
     });
@@ -56,17 +56,17 @@ export class QueueService {
 
   async enqueueJob(job: TranslationJob): Promise<void> {
     if (!this.client) {
-      logger.error('Queue service is not connected', {
-        operation: 'enqueueJob',
+      logger.error("Queue service is not connected", {
+        operation: "enqueueJob",
         jobId: job.jobId,
         sessionId: job.sessionId,
         targetLanguage: job.targetLanguage,
       });
-      throw new Error('QueueService not connected');
+      throw new Error("QueueService not connected");
     }
     const jobJson = JSON.stringify(job);
     await this.client.lpush(this.queueKey, jobJson);
-    logger.info('Translation job enqueued', {
+    logger.info(`Translation job enqueued - ${job.targetLanguage}`, {
       jobId: job.jobId,
       sessionId: job.sessionId,
       targetLanguage: job.targetLanguage,
@@ -77,21 +77,21 @@ export class QueueService {
     callback: (result: TranslationResult) => void,
   ): Promise<void> {
     if (!this.subscriber) {
-      logger.error('Queue service is not connected', {
-        operation: 'subscribeToResults',
+      logger.error("Queue service is not connected", {
+        operation: "subscribeToResults",
       });
-      throw new Error('QueueService not connected');
+      throw new Error("QueueService not connected");
     }
 
     await this.subscriber.subscribe(this.resultChannel);
 
-    this.subscriber.on('message', (channel: string, message: string) => {
+    this.subscriber.on("message", (channel: string, message: string) => {
       if (channel === this.resultChannel) {
         try {
           const result = JSON.parse(message) as TranslationResult;
           callback(result);
         } catch (error) {
-          logger.error('Error parsing translation result message', {
+          logger.error("Error parsing translation result message", {
             channel,
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
@@ -100,18 +100,18 @@ export class QueueService {
       }
     });
 
-    logger.info('Subscribed to translation result channel', {
+    logger.info("Subscribed to translation result channel", {
       channel: this.resultChannel,
     });
   }
 
   async saveSession(session: TranslationSession): Promise<void> {
     if (!this.client) {
-      logger.error('Queue service is not connected', {
-        operation: 'saveSession',
+      logger.error("Queue service is not connected", {
+        operation: "saveSession",
         sessionId: session.sessionId,
       });
-      throw new Error('QueueService not connected');
+      throw new Error("QueueService not connected");
     }
 
     const key = this.sessionKeyPrefix + session.sessionId;
@@ -120,7 +120,7 @@ export class QueueService {
       sourceLanguage: session.sourceLanguage,
       status: session.status,
       totalJobs: session.jobs.size.toString(),
-      completedJobs: '0',
+      completedJobs: "0",
     };
 
     // Add job information
@@ -131,7 +131,7 @@ export class QueueService {
     await this.client.hset(key, sessionData);
     await this.client.expire(key, 3600); // 1 hour TTL
 
-    logger.info('Translation session saved', {
+    logger.info("Translation session saved", {
       sessionId: session.sessionId,
       jobCount: session.jobs.size,
       status: session.status,
@@ -140,11 +140,11 @@ export class QueueService {
 
   async getSession(sessionId: string): Promise<TranslationSession | null> {
     if (!this.client) {
-      logger.error('Queue service is not connected', {
-        operation: 'getSession',
+      logger.error("Queue service is not connected", {
+        operation: "getSession",
         sessionId,
       });
-      throw new Error('QueueService not connected');
+      throw new Error("QueueService not connected");
     }
 
     const key = this.sessionKeyPrefix + sessionId;
@@ -162,7 +162,7 @@ export class QueueService {
       if (jobMatch) {
         const lang = jobMatch[1];
         jobs.set(lang, {
-          status: value as JobStatus['status'],
+          status: value as JobStatus["status"],
           translatedText: data[`job:${lang}:translatedText`],
           error: data[`job:${lang}:error`],
         });
@@ -173,7 +173,7 @@ export class QueueService {
       sessionId,
       text: data.text,
       sourceLanguage: data.sourceLanguage,
-      status: data.status as TranslationSession['status'],
+      status: data.status as TranslationSession["status"],
       jobs,
     };
   }
@@ -181,18 +181,18 @@ export class QueueService {
   async updateJobStatus(
     sessionId: string,
     language: string,
-    status: JobStatus['status'],
+    status: JobStatus["status"],
     translatedText?: string,
     error?: string,
   ): Promise<void> {
     if (!this.client) {
-      logger.error('Queue service is not connected', {
-        operation: 'updateJobStatus',
+      logger.error("Queue service is not connected", {
+        operation: "updateJobStatus",
         sessionId,
         targetLanguage: language,
         status,
       });
-      throw new Error('QueueService not connected');
+      throw new Error("QueueService not connected");
     }
 
     const key = this.sessionKeyPrefix + sessionId;
@@ -211,22 +211,22 @@ export class QueueService {
     await this.client.hset(key, updates);
 
     // Update completed jobs count
-    if (status === 'completed' || status === 'error') {
-      await this.client.hincrby(key, 'completedJobs', 1);
+    if (status === "completed" || status === "error") {
+      await this.client.hincrby(key, "completedJobs", 1);
     }
 
     // Check if all jobs are done
     const data = await this.client.hgetall(key);
-    const totalJobs = parseInt(data.totalJobs || '0', 10);
-    const completedJobs = parseInt(data.completedJobs || '0', 10);
+    const totalJobs = parseInt(data.totalJobs || "0", 10);
+    const completedJobs = parseInt(data.completedJobs || "0", 10);
 
     if (completedJobs >= totalJobs) {
-      await this.client.hset(key, 'status', 'completed');
-    } else if (status === 'processing' && data.status === 'queued') {
-      await this.client.hset(key, 'status', 'in_progress');
+      await this.client.hset(key, "status", "completed");
+    } else if (status === "processing" && data.status === "queued") {
+      await this.client.hset(key, "status", "in_progress");
     }
 
-    logger.info('Translation job status updated', {
+    logger.info("Translation job status updated", {
       sessionId,
       targetLanguage: language,
       status,
@@ -244,6 +244,6 @@ export class QueueService {
       await this.client.quit();
       this.client = null;
     }
-    logger.info('Queue service disconnected');
+    logger.info("Queue service disconnected");
   }
 }

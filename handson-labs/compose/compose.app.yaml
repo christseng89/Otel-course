@@ -27,6 +27,9 @@
          - PORT=3000
          - LOG_LEVEL=info
          - SOURCE_LANGUAGE=en
+         # Refactoring
+         - OTEL_SERVICE_NAME=translation-frontend
+         - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
        depends_on:
          redis:
            condition: service_healthy
@@ -42,6 +45,9 @@
          - REDIS_PORT=6379
          - LOG_LEVEL=info
          - SOURCE_LANGUAGE=en
+         # Refactoring
+         - OTEL_SERVICE_NAME=translation-worker
+         - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
        depends_on:
          redis:
            condition: service_healthy

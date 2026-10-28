@@ -5,9 +5,9 @@
   "description": "Translation queue frontend service",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --env-file-if-exists=.env node_modules/tsx/dist/cli.mjs watch src/index.ts",
     "build": "tsc",
-    "start": "node --experimental-loader=@opentelemetry/instrumentation/hook.mjs dist/index.js",
+    "start": "node --env-file-if-exists=.env --experimental-loader=@opentelemetry/instrumentation/hook.mjs dist/index.js",
     "test": "jest --maxWorkers=1",
     "test:watch": "jest --watch --maxWorkers=1",
     "test:coverage": "jest --coverage --maxWorkers=1"

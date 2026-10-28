@@ -767,9 +767,9 @@ Add structured business logs throughout the request flow:
     language_count: targetLanguages.length,
   });
 
-// Enqueue job and log each successfully enqueued job.
+// Confirm that each job was accepted for processing.
 return queueService.enqueueJob(job).then(() => {
-  logger.info('Translation job enqueued', {
+  logger.info(`Translation job accepted for processing - ${targetLanguage}`, {
     job_id: jobId,
     session_id: sessionId,
     target_language: targetLanguage,
@@ -1082,5 +1082,268 @@ Expand a log line — a **Trace ID** link appears at the bottom of the detail pa
 Open Grafana → Explore → Tempo
 
 Search for recent traces from `translation-frontend`. Open a trace and click the **Logs** button at the top of the trace view. Grafana queries Loki and displays the logs for that service scoped to the same trace.
+
+---
+# Frontend Refactoring
+
+- Refer to `lab-frontend-refactorings.md`
+
+**Key environment variables used in this lab:**
+
+| Variable                      | Purpose                                                   |
+| ----------------------------- | --------------------------------------------------------- |
+| `OTEL_SERVICE_NAME`           | Service name reported in all telemetry signals            |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL for all OTLP exporters (traces, metrics, logs)   |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Metrics export interval in milliseconds (default `60000`) |
+
+## 1. Review the Current `instrumentation.ts`
+
+Open `app-versions/code/frontend/instrumentation.ts` and note the hardcoded values:
+
+```typescript
+const sdk = new NodeSDK({
+  serviceName: 'translation-frontend', // ← hardcoded
+  traceExporter: new OTLPTraceExporter({
+    url: 'http://otel-collector:4318/v1/traces', // ← hardcoded
+  }),
+  metricReader: new PeriodicExportingMetricReader({
+    exporter: new OTLPMetricExporter({
+      url: 'http://otel-collector:4318/v1/metrics', // ← hardcoded
+    }),
+    exportIntervalMillis: 10000, // ← hardcoded
+  }),
+  logRecordProcessors: [
+    new BatchLogRecordProcessor(
+      new OTLPLogExporter({
+        url: 'http://otel-collector:4318/v1/logs', // ← hardcoded
+      }),
+    ),
+  ],
+  instrumentations: [
+    getNodeAutoInstrumentations(),
+    new WinstonInstrumentation(),
+  ],
+});
+```
+
+Every endpoint and the service name are baked into the code. Changing the collector address requires a code edit and a new image build.
+
+## 2. Refactor `instrumentation.ts`
+
+Replace the full file content with the version below. The OTel Node SDK automatically reads `OTEL_SERVICE_NAME` and `OTEL_EXPORTER_OTLP_ENDPOINT`, so no arguments need to be passed to any exporter or to `NodeSDK`:
+
+```typescript
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+
+import { WinstonInstrumentation } from '@opentelemetry/instrumentation-winston';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
+import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
+
+// All configuration is driven by standard OTel environment variables:
+//   OTEL_SERVICE_NAME                   — service name (required)
+//   OTEL_EXPORTER_OTLP_ENDPOINT         — base URL for all signals, e.g. http://otel-collector:4318
+//   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT  — override traces endpoint
+//   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT — override metrics endpoint
+//   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT    — override logs endpoint
+//   OTEL_METRIC_EXPORT_INTERVAL         — metrics export interval in ms (default 60000)
+const sdk = new NodeSDK({
+  traceExporter: new OTLPTraceExporter(),
+  metricReader: new PeriodicExportingMetricReader({
+    exporter: new OTLPMetricExporter(),
+    exportIntervalMillis: parseInt(
+      process.env.OTEL_METRIC_EXPORT_INTERVAL || '60000',
+      10,
+    ),
+  }),
+  logRecordProcessors: [new BatchLogRecordProcessor(new OTLPLogExporter())],
+  instrumentations: [
+    getNodeAutoInstrumentations(),
+    new WinstonInstrumentation(),
+  ],
+});
+
+sdk.start();
+```
+
+What changed:
+
+- `serviceName` removed — SDK reads `OTEL_SERVICE_NAME` from the environment
+- `url` option removed from all exporters — SDK reads `OTEL_EXPORTER_OTLP_ENDPOINT` and appends the signal-specific path automatically (`/v1/traces`, `/v1/metrics`, `/v1/logs`)
+- `exportIntervalMillis` now reads from `OTEL_METRIC_EXPORT_INTERVAL`, with a sensible default of `60000` ms
+
+NOTE:
+
+When you configure only:
+
+```env
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+the OpenTelemetry OTLP HTTP exporters automatically use:
+
+```text
+/v1/traces
+/v1/metrics
+/v1/logs
+```
+
+So the effective URLs become:
+
+```text
+http://localhost:4318/v1/traces
+http://localhost:4318/v1/metrics
+http://localhost:4318/v1/logs
+```
+
+You **only** need to define the three signal-specific variables when those signals use different endpoints.
+
+---
+
+## 3. Add OTel Environment Variables to `compose/compose.app.yaml`
+
+Open `compose/compose.app.yaml` and add the two OTel environment variables to the `frontend` and `worker` services:
+
+```yaml
+frontend:
+  container_name: frontend
+  ports:
+    - '3001:3000'
+  environment:
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - PORT=3000
+    - LOG_LEVEL=info
+    - SOURCE_LANGUAGE=en
+    - OTEL_SERVICE_NAME=translation-frontend
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+```
+
+```yaml
+worker:
+  container_name: worker
+  environment:
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - LOG_LEVEL=info
+    - SOURCE_LANGUAGE=en
+    - OTEL_SERVICE_NAME=translation-worker
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+```
+
+This is the single place where environment-specific configuration lives. Swapping to a different collector (e.g. in a staging environment) is now a one-line change here rather than a code change.
+
+```env
+PORT=3000
+REDIS_HOST=localhost
+REDIS_PORT=6379
+LOG_LEVEL=info
+
+# OpenTelemetry
+OTEL_SERVICE_NAME=translation-frontend
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+OTEL_METRIC_EXPORT_INTERVAL=10000
+
+```
+
+### 3.1 `package.json`
+
+```json
+  ...
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env node_modules/tsx/dist/cli.mjs watch src/index.ts",
+    "build": "tsc",
+    "start": "node --env-file-if-exists=.env --experimental-loader=@opentelemetry/instrumentation/hook.mjs dist/index.js",
+    "test": "jest --maxWorkers=1",
+    "test:watch": "jest --watch --maxWorkers=1",
+    "test:coverage": "jest --coverage --maxWorkers=1"
+  },
+  ...
+```
+
+```ts queue.ts
+await this.client.lpush(this.queueKey, jobJson);
+logger.info(`Translation job enqueued - ${job.targetLanguage}`, {
+  jobId: job.jobId,
+  sessionId: job.sessionId,
+  targetLanguage: job.targetLanguage,
+});
+```
+
+```ts translation.ts
+logger.info(
+  `Translation job accepted for processing - ${targetLanguage}`,
+  {
+    job_id: jobId,
+    session_id: sessionId,
+    target_language: targetLanguage,
+    queue: "translation_queue",
+  },
+);
+
+...
+logger.info("Translation session created", {
+  session_id: sessionId,
+  text_length: text.length,
+  target_languages: targetLanguages,
+  language_count: targetLanguages.length,
+});
+
+await queueService.saveSession(session);
+
+...
+
+// Log session ready
+logger.info("Translation session ready", {
+  session_id: sessionId,
+  jobs_count: targetLanguages.length,
+  status: "queued",
+});
+
+```
+
+## 4. Deploy
+
+```bash
+cd handson-labs/compose/
+docker compose -f compose.dev.yaml up --build frontend -d
+
+docker compose -f compose.dev.yaml logs frontend
+```
+
+Note: To rebuild all services with hot-reload use `docker compose -f compose.dev.yaml up --build` instead.
+
+## 5. Verify Configuration Is Picked Up
+
+Check the frontend container logs for the service name being reported correctly:
+
+```bash
+docker logs frontend 2>&1 | head -20
+```
+
+Generate a request and verify signals still arrive in Grafana:
+
+```bash
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello world", "targetLanguages": ["es", "fr"]}'
+```
+
+```logql
+{service_name="translation-frontend"}
+{service_name="translation-frontend"} | trace_id != ""
+```
+
+Open Grafana (http://localhost:3000) and confirm:
+
+- **Tempo** → traces tagged with `service.name = translation-frontend`
+- **Prometheus** → metrics labelled `exported_job="translation-frontend"`
+- **Loki** → logs with `service_name="translation-frontend"`
+
+All three signals should appear identically to before the refactoring — this is a pure configuration change, not a behaviour change.
 
 ---
