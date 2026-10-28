@@ -908,3 +908,179 @@ SSE 是單向通訊：
 如果需要雙向即時通訊，通常會使用 WebSocket。 單獨使用 curl POST 不會建立 SSE 連線。
 
 ---
+# Logs Traces Correlation
+
+- Refer to `lab-logs-traces-correlation.md`
+
+## 1. Stop the stack and wipe the Grafana volume
+
+Removing the Grafana volume ensures the updated provisioning config is applied from scratch on restart:
+
+```bash
+cd handson-labs/compose/
+docker compose -f compose.dev.yaml down
+docker volume ls
+docker volume ls | grep grafana
+docker volume rm compose_grafana-data
+```
+
+## 2. Add UIDs to all datasources
+
+Open `compose/grafana-datasources.yaml`. Cross-datasource linking requires stable UIDs so datasources can reference each other. Ensure all three datasources have explicit `uid` fields:
+
+```yaml
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    # ...
+
+  - name: Loki
+    uid: loki
+    # ...
+
+  - name: Tempo
+    uid: tempo
+    # ...
+```
+
+## 3. Configure trace-to-log correlation in Tempo
+
+Add `tracesToLogsV2` to the Tempo datasource `jsonData`. This enables a **Logs** button inside Tempo's trace view that queries Loki for logs matching the same trace:
+
+```yaml
+- name: Tempo
+  uid: tempo
+  type: tempo
+  access: proxy
+  url: http://tempo:3200
+  editable: false
+  jsonData:
+    tracesToLogsV2:
+      datasourceUid: loki
+      filterByTraceID: true
+      filterBySpanID: false
+      tags:
+        - key: service.name
+          value: service_name
+```
+
+- `filterByTraceID: true` — adds a `trace_id` filter to the generated Loki query automatically
+- `tags` — maps the OTel span attribute `service.name` to the Loki stream label `service_name`, scoping the log query to the correct service
+
+## 4. Configure log-to-trace correlation in Loki
+
+Add `derivedFields` to the Loki datasource `jsonData`. This creates a clickable **Trace ID** link on every log line that has a `trace_id` stream label:
+
+```yaml
+- name: Loki
+  uid: loki
+  type: loki
+  access: proxy
+  url: http://loki:3100
+  editable: false
+  jsonData:
+    maxLines: 1000
+    derivedFields:
+      - name: Trace ID
+        matcherType: label
+        matcherRegex: 'trace_id'
+        datasourceUid: tempo
+        url: '$${__value.raw}'
+        urlDisplayLabel: 'Trace ID'
+```
+
+- `matcherType: label` — matches the `trace_id` stream label directly (trace context is stored as a label, not embedded in the log body, when using OTLP ingestion)
+- `url: '$${__value.raw}'` — `$$` is the provisioning escape for a literal `$`; at runtime Grafana substitutes the extracted label value as the trace ID query to Tempo
+
+```yaml grafana-datasources.yaml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    # Change here
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+
+  - name: Loki
+    # Change here
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 1000
+      # Change here
+      derivedFields:
+        - name: Trace ID
+          matcherType: label
+          matcherRegex: 'trace_id'
+          datasourceUid: tempo
+          url: '$${__value.raw}'
+          urlDisplayLabel: 'Trace ID'
+
+  - name: Tempo
+    # Change here
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        # Change here
+        datasourceUid: loki
+        filterByTraceID: true
+        filterBySpanID: false
+        tags:
+          - key: service.name
+            value: service_name
+      tracesToMetrics:
+        # Change here
+        datasourceUid: prometheus
+      serviceMap:
+        datasourceUid: prometheus
+
+```
+
+## 5. Deploy
+
+```bash
+docker compose -f compose.dev.yaml up -d
+```
+
+## 6. Generate Traffic
+
+```bash
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello world", "targetLanguages": ["es", "fr"]}'
+```
+
+## 7. Verify log-to-trace correlation
+
+Open Grafana (http://localhost:3000) → Explore → Loki
+
+Run the query:
+
+```logql
+{service_name="translation-frontend"}
+{service_name="translation-frontend"} | trace_id != ""
+```
+
+Expand a log line — a **Trace ID** link appears at the bottom of the detail panel. Click it to open the corresponding trace in Tempo.
+
+## 8. Verify trace-to-log correlation
+
+Open Grafana → Explore → Tempo
+
+Search for recent traces from `translation-frontend`. Open a trace and click the **Logs** button at the top of the trace view. Grafana queries Loki and displays the logs for that service scoped to the same trace.
+
+---
