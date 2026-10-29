@@ -9,8 +9,7 @@ from .config import Config
 from .queue import QueueConsumer
 from .translator import Translator
 
-# Change here After (add the import):
-from .instrumentation import setup_instrumentation
+from .instrumentation import setup_instrumentation, shutdown_instrumentation
 
 # Configure logging
 logging.basicConfig(
@@ -183,6 +182,7 @@ def main() -> None:
                 logger.error(f"Error disconnecting from Redis: {e}")
 
         logger.info("Worker stopped")
+        shutdown_instrumentation()
 
 
 if __name__ == "__main__":
