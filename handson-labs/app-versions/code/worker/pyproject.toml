@@ -6,6 +6,12 @@ requires-python = ">=3.11"
 dependencies = [
     "redis==7.2.0",
     "argostranslate==1.11.0",
+    # Change here
+    "opentelemetry-api==1.40.0",
+    "opentelemetry-sdk==1.40.0",
+    "opentelemetry-exporter-otlp-proto-http==1.40.0",
+    "opentelemetry-instrumentation-redis==0.61b0",
+    "opentelemetry-instrumentation-system-metrics==0.61b0",
 ]
 
 [project.optional-dependencies]

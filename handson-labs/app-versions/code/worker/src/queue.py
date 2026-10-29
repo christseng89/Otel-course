@@ -1,7 +1,7 @@
 import redis
 import json
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class QueueConsumer:
             logger.error(f"Failed to connect to Redis: {e}")
             raise
 
-    def wait_for_job(self, timeout: int = 0) -> Optional[Dict[str, Any]]:
+    def wait_for_job(self, timeout: int = 0) -> Optional[dict[str, Any]]:
         """
         Wait for and retrieve a job from the queue.
 
@@ -81,7 +81,7 @@ class QueueConsumer:
             logger.error(f"Redis error while waiting for job: {e}")
             raise
 
-    def publish_result(self, result: Dict[str, Any]) -> None:
+    def publish_result(self, result: dict[str, Any]) -> None:
         """
         Publish a translation result.
 

@@ -1,7 +1,6 @@
 import argostranslate.package
 import argostranslate.translate
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

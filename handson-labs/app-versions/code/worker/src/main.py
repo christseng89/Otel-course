@@ -9,6 +9,9 @@ from .config import Config
 from .queue import QueueConsumer
 from .translator import Translator
 
+# Change here After (add the import):
+from .instrumentation import setup_instrumentation
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +39,9 @@ def main() -> None:
     # Register signal handlers
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
+
+    # Change here Initialise OpenTelemetry before anything else
+    setup_instrumentation()
 
     # Load configuration
     config = Config.from_env()

@@ -1,6 +1,5 @@
 import os
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
@@ -12,7 +11,7 @@ class Config:
     queue_key: str
     result_channel: str
     source_language: str
-    supported_languages: List[str]
+    supported_languages: list[str]
     log_level: str
 
     @classmethod
