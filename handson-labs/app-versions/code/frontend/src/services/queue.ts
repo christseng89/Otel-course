@@ -1,3 +1,6 @@
+// Context Propagation
+import { propagation, context } from "@opentelemetry/api";
+
 import { Redis } from "ioredis";
 import type {
   TranslationJob,
@@ -64,12 +67,22 @@ export class QueueService {
       });
       throw new Error("QueueService not connected");
     }
-    const jobJson = JSON.stringify(job);
+
+    // Context Propagation
+    // Inject current trace context into the job payload so the worker
+    // can restore it and create a child span linked to this trace.
+    const _traceContext: Record<string, string> = {};
+    propagation.inject(context.active(), _traceContext);
+
+    const jobJson = JSON.stringify({ ...job, _traceContext });
     await this.client.lpush(this.queueKey, jobJson);
+
+    // Context Propagation
     logger.info(`Translation job enqueued - ${job.targetLanguage}`, {
-      jobId: job.jobId,
-      sessionId: job.sessionId,
-      targetLanguage: job.targetLanguage,
+      job_id: job.jobId,
+      session_id: job.sessionId,
+      target_language: job.targetLanguage,
+      queue: this.queueKey,
     });
   }
 

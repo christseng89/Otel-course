@@ -1,3 +1,7 @@
+# Context Propagation
+from opentelemetry import trace, propagate
+from opentelemetry.trace import SpanKind, Status, StatusCode
+
 import signal
 import sys
 import logging
@@ -19,6 +23,9 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Context Propagation # Add this line
+tracer = trace.get_tracer(__name__)
 
 # Global shutdown flag
 shutdown_flag = False
@@ -92,72 +99,99 @@ def main() -> None:
                     logger.error(f"Invalid job data: {job}")
                     continue
 
-                # Validate target language
-                if target_lang not in config.supported_languages:
-                    error_msg = f"Unsupported target language: {target_lang}"
-                    logger.error(error_msg)
+                # Context Propagation
+                # Extract the W3C trace context injected by the frontend.
+                # Missing or malformed context produces a background context,
+                # so the worker still processes the job as a new root trace.
+                remote_ctx = propagate.extract(job.get("_traceContext") or {})
 
-                    result = {
-                        "jobId": job_id,
-                        "sessionId": session_id,
-                        "targetLanguage": target_lang,
-                        "status": "error",
-                        "error": error_msg,
-                        "durationMs": 0,
-                        "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
-                    }
+                with tracer.start_as_current_span(
+                    f"process_translation_job - {target_lang}",
+                    context=remote_ctx,
+                    kind=SpanKind.CONSUMER,
+                    attributes={
+                        "translation.job_id": job_id,
+                        "translation.session_id": session_id,
+                        "translation.target_language": target_lang,
+                        "translation.text_length": len(text) if text else 0,
+                    },
+                ) as span:
+                    try:
+                        # Validate target language
+                        if target_lang not in config.supported_languages:
+                            error_msg = f"Unsupported target language: {target_lang}"
+                            logger.error(error_msg)
+                            # Context Propagation
+                            span.set_status(Status(StatusCode.ERROR, error_msg))
+                            result = {
+                                "jobId": job_id,
+                                "sessionId": session_id,
+                                "targetLanguage": target_lang,
+                                "status": "error",
+                                "error": error_msg,
+                                "durationMs": 0,
+                                "completedAt": datetime.now(timezone.utc).isoformat()
+                                + "Z",
+                            }
+                            queue_consumer.publish_result(result)
+                            continue
+
+                        # Translate
+                        # Ensure text is not None 
+                        assert text is not None
+                        logger.info(
+                            f"Processing job {job_id}: {source_lang} -> {target_lang}"
+                        )
+                        start_time = time.time()
+
+                        # Simulate realistic API latency (0.5-2 seconds)
+                        delay = random.uniform(0.5, 2.0)
+                        logger.debug(f"Simulating {delay:.2f}s translation latency")
+                        time.sleep(delay)
+
+                        translated_text = translator.translate(
+                            text, source_lang, target_lang
+                        )
+                        duration_ms = int((time.time() - start_time) * 1000)
+
+                        # Context Propagation
+                        span.set_attribute("translation.duration_ms", duration_ms)
+
+                        result = {
+                            "jobId": job_id,
+                            "sessionId": session_id,
+                            "targetLanguage": target_lang,
+                            "translatedText": translated_text,
+                            "status": "completed",
+                            "durationMs": duration_ms,
+                            "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
+                        }
+
+                        logger.info(
+                            f"Job {job_id} completed successfully in {duration_ms}ms"
+                        )
+
+                    except Exception as e:
+                        duration_ms = int((time.time() - start_time) * 1000)
+                        error_msg = str(e)
+                        logger.error(
+                            f"Translation failed for job {job_id}: {error_msg}"
+                        )
+                        # Context Propagation
+                        span.record_exception(e)
+                        span.set_status(Status(StatusCode.ERROR, error_msg))
+                        result = {
+                            "jobId": job_id,
+                            "sessionId": session_id,
+                            "targetLanguage": target_lang,
+                            "status": "error",
+                            "error": error_msg,
+                            "durationMs": duration_ms,
+                            "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
+                        }
+
+                    # Publish result
                     queue_consumer.publish_result(result)
-                    continue
-
-                # Translate
-                logger.info(f"Processing job {job_id}: {source_lang} -> {target_lang}")
-                start_time = time.time()
-
-                try:
-                    # Simulate realistic API latency (0.5-2 seconds)
-                    delay = random.uniform(0.5, 2.0)
-                    logger.debug(f"Simulating {delay:.2f}s translation latency")
-                    time.sleep(delay)
-
-                    # Ensure text is not None (already validated above)
-                    assert text is not None, "Text should not be None"
-                    translated_text = translator.translate(
-                        text, source_lang, target_lang
-                    )
-                    duration_ms = int((time.time() - start_time) * 1000)
-
-                    result = {
-                        "jobId": job_id,
-                        "sessionId": session_id,
-                        "targetLanguage": target_lang,
-                        "translatedText": translated_text,
-                        "status": "completed",
-                        "durationMs": duration_ms,
-                        "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
-                    }
-
-                    logger.info(
-                        f"Job {job_id} completed successfully in {duration_ms}ms"
-                    )
-
-                except Exception as e:
-                    duration_ms = int((time.time() - start_time) * 1000)
-                    error_msg = str(e)
-
-                    logger.error(f"Translation failed for job {job_id}: {error_msg}")
-
-                    result = {
-                        "jobId": job_id,
-                        "sessionId": session_id,
-                        "targetLanguage": target_lang,
-                        "status": "error",
-                        "error": error_msg,
-                        "durationMs": duration_ms,
-                        "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
-                    }
-
-                # Publish result
-                queue_consumer.publish_result(result)
 
             except KeyboardInterrupt:
                 logger.info("Received keyboard interrupt")

@@ -1045,4 +1045,253 @@ Frontend Inject → Redis 傳遞 → Worker Extract → 建立 Consumer Span
 本例使用 Parent-Child 模式。對更複雜的非同步訊息處理，也可使用 Span Links 建立關聯。
 
 ---
+# Hands on Frontend-to-Worker Propagation
+
+- Refer to `lab-context-propagation.md`
+
+## 1. Add `_traceContext` to the `TranslationJob` type
+
+Open `app-versions/code/frontend/src/types.ts` and add the optional `_traceContext` field to `TranslationJob`:
+
+```typescript
+// Before:
+export interface TranslationJob {
+  jobId: string;
+  sessionId: string;
+  text: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  createdAt: string;
+}
+
+// After:
+export interface TranslationJob {
+  jobId: string;
+  sessionId: string;
+  text: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  createdAt: string;
+  _traceContext?: Record<string, string>;
+}
+```
+
+## 2. Inject trace context in `enqueueJob`
+
+Open `app-versions/code/frontend/src/services/queue.ts` and add the propagation import and inject call inside `enqueueJob`:
+
+```typescript
+// Add import at the top of the file:
+import { propagation, context } from '@opentelemetry/api';
+```
+
+Update `enqueueJob` to inject the active trace context before serialising:
+
+```typescript
+// Before:
+async enqueueJob(job: TranslationJob): Promise<void> {
+  if (!this.client) {
+    throw new Error('QueueService not connected');
+  }
+  const jobJson = JSON.stringify(job);
+  await this.client.lpush(this.queueKey, jobJson);
+  logger.info('Job enqueued', { ... });
+}
+
+// After:
+async enqueueJob(job: TranslationJob): Promise<void> {
+  ...
+// Context Propagation
+  // Inject current trace context into the job payload so the worker
+  // can restore it and create a child span linked to this trace.
+  const _traceContext: Record<string, string> = {};
+  propagation.inject(context.active(), _traceContext);
+
+  const jobJson = JSON.stringify({ ...job, _traceContext });
+  await this.client.lpush(this.queueKey, jobJson);
+
+  // Context Propagation
+  logger.info(`Translation job enqueued - ${job.targetLanguage}`, {
+    job_id: job.jobId,
+    session_id: job.sessionId,
+    target_language: job.targetLanguage,
+    queue: this.queueKey,
+  });
+}
+  ...
+
+```
+
+## 3. Extract trace context and create a root span in `src/main.py`
+
+Open `app-versions/code/worker/src/main.py` and add the OTel trace imports:
+
+```python
+# Add these imports at the top:
+from opentelemetry import trace, propagate
+from opentelemetry.trace import SpanKind, StatusCode
+```
+
+Then add a module-level tracer and wrap the job processing loop body with a span.
+
+Add the tracer after the imports:
+
+```python
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)  # Add this line
+```
+
+In the main processing loop, replace the job processing block with one that extracts the remote context and wraps the work in a span. Locate the section that starts with `# Validate target language` and update the structure:
+
+```python
+if not all([job_id, session_id, text, target_lang]):
+    logger.error(f"Invalid job data: {job}")
+    continue
+
+# Context Propagation
+# Extract the W3C trace context injected by the frontend.
+# Missing or malformed context produces a background context,
+# so the worker still processes the job as a new root trace.
+remote_ctx = propagate.extract(job.get("_traceContext") or {})
+
+with tracer.start_as_current_span(
+    f"process_translation_job - {target_lang}",
+    context=remote_ctx,
+    kind=SpanKind.CONSUMER,
+    attributes={
+        "translation.job_id": job_id,
+        "translation.session_id": session_id,
+        "translation.target_language": target_lang,
+        "translation.text_length": len(text) if text else 0,
+    },
+) as span:
+    try:
+        # Validate target language
+        if target_lang not in config.supported_languages:
+            error_msg = f"Unsupported target language: {target_lang}"
+            logger.error(error_msg)
+            # Context Propagation
+            span.set_status(Status(StatusCode.ERROR, error_msg))
+            result = {
+                "jobId": job_id,
+                "sessionId": session_id,
+                "targetLanguage": target_lang,
+                "status": "error",
+                "error": error_msg,
+                "durationMs": 0,
+                "completedAt": datetime.now(timezone.utc).isoformat()
+                + "Z",
+            }
+            queue_consumer.publish_result(result)
+            continue
+
+        # Translate
+        # Ensure text is not None 
+        assert text is not None
+        logger.info(
+            f"Processing job {job_id}: {source_lang} -> {target_lang}"
+        )
+        start_time = time.time()
+
+        # Simulate realistic API latency (0.5-2 seconds)
+        delay = random.uniform(0.5, 2.0)
+        logger.debug(f"Simulating {delay:.2f}s translation latency")
+        time.sleep(delay)
+
+        translated_text = translator.translate(
+            text, source_lang, target_lang
+        )
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # Context Propagation
+        span.set_attribute("translation.duration_ms", duration_ms)
+
+        result = {
+            "jobId": job_id,
+            "sessionId": session_id,
+            "targetLanguage": target_lang,
+            "translatedText": translated_text,
+            "status": "completed",
+            "durationMs": duration_ms,
+            "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
+        }
+
+        logger.info(
+            f"Job {job_id} completed successfully in {duration_ms}ms"
+        )
+
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        error_msg = str(e)
+        logger.error(
+            f"Translation failed for job {job_id}: {error_msg}"
+        )
+        # Context Propagation
+        span.record_exception(e)
+        span.set_status(Status(StatusCode.ERROR, error_msg))
+        result = {
+            "jobId": job_id,
+            "sessionId": session_id,
+            "targetLanguage": target_lang,
+            "status": "error",
+            "error": error_msg,
+            "durationMs": duration_ms,
+            "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
+        }
+
+    # Publish result
+    queue_consumer.publish_result(result)
+
+```
+
+## 4. Deploy both services
+
+The frontend has changed (TypeScript source change, hot-reloads automatically). The worker source also changed (Python file, watchmedo picks it up automatically). No rebuild needed:
+
+```bash
+cd compose/
+docker compose -f compose.dev.yaml up -d
+
+docker compose -f compose.dev.yaml logs frontend
+docker compose -f compose.dev.yaml logs worker
+```
+
+Wait a few seconds for both services to restart.
+
+## 5. Generate traffic
+
+```bash
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello world", "targetLanguages": ["es", "fr"]}'
+```
+
+**6. Verify end-to-end trace in Grafana Tempo**
+
+Open Grafana at http://localhost:3010 → Explore → Tempo → Search
+
+Filter by `service.name = translation-frontend`. Open a recent trace.
+
+Expected span hierarchy:
+
+```
+request handler - /api/translate (3.93ms)
+└── create_translation_session (3.85ms)
+    ├── validate_request (15.4µs)
+    ├── enqueue_translation_jobs (2.02ms)
+    │   ├── lpush (1.22ms)
+    │   ├── lpush (1.11ms)
+    │   ├── translation-worker: process_translation_job - es (1.04s)
+    │   │   └── PUBLISH (435.22µs)
+    │   └── process_translation_job - fr (1.77s)
+    │       └── PUBLISH (390.62µs)
+    ├── translation-frontend: hset (411.32µs)
+    └── expire (149.41µs)
+
+```
+
+The worker spans should appear as children of `enqueue_translation_jobs` with `span.kind = CONSUMER`. The `is_remote` flag indicates the span boundary crossed a service.
+
+> The propagation implementation matches the README design and should connect frontend enqueue_translation_jobs to worker process_translation_job.
+---
 
