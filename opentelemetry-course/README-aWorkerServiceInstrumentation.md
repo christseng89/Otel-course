@@ -539,3 +539,106 @@ Expected log messages include:
 Once trace instrumentation is added in the next lab, log entries emitted within a span will also show `trace_id` and `span_id` as stream labels — enabling the same log-to-trace correlation links you set up in the single-system section.
 
 ---
+
+# Hands on Worker Traces Auto-Instrumentation
+
+- Refer to `lab-worker-traces-auto.md`
+
+## 1. Update `src/instrumentation.py` — add the trace pipeline
+
+Add trace imports at the top of `app-versions/code/worker/src/instrumentation.py`:
+
+```python
+# Add these imports alongside the existing ones:
+from opentelemetry import metrics, trace
+
+...
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+...
+_tracer_provider: TracerProvider | None = None
+```
+
+Then add the trace pipeline block inside `setup_instrumentation()`, after the logs setup:
+
+```python
+def setup_instrumentation() -> None:
+    ...
+
+    # --- Traces pipeline (new) ---
+    tracer_provider = TracerProvider(resource=resource)
+    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(tracer_provider)
+
+    RedisInstrumentor().instrument()
+    ...
+
+    if _tracer_provider:
+        _tracer_provider.shutdown()
+```
+
+> **Why does the trace pipeline enable Redis spans automatically?**
+> `RedisInstrumentor().instrument()` checks for a configured `TracerProvider` when patching the Redis client. Now that a real provider is set, every Redis command creates a span.
+
+## 2. Deploy
+
+```bash
+docker compose -f compose.dev.yaml up --build worker -d
+
+docker compose -f compose.dev.yaml logs worker
+```
+
+## 3. Generate traffic
+
+```bash
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello world", "targetLanguages": ["es", "fr"]}'
+```
+
+## 4. Verify Redis spans in Grafana Tempo
+
+Open Grafana at http://localhost:3010 → Explore → Tempo → Search
+
+Filter by `service.name = translation-worker`.
+
+Expected spans:
+
+- `BRPOP` — blocking read from the queue
+- `PUBLISH` — publishing the result to the results channel
+
+**Span attributes to examine:**
+
+- `db.system: redis`
+- `db.operation: BRPOP` or `PUBLISH`
+- `net.peer.name: redis`
+- `net.peer.port: 6379`
+
+> **Note:** At this point the worker spans appear as isolated traces — they are not connected to the corresponding frontend `create_translation_session` span. This is the problem context propagation solves in the next lab.
+
+---
+`BRPOP` is a Redis command meaning:
+
+- `B` = blocking
+- `RPOP` = remove and return the last item from a list
+
+In this worker:
+
+```python queue.py
+result = self.client.brpop([self.queue_key], timeout=timeout)  # type: ignore
+```
+
+It waits up to one second for a translation job.
+
+Flow:
+
+```text
+Frontend → LPUSH translation job → Redis list
+Worker   → BRPOP translation job ← Redis list
+```
+
+Seeing repeated `BRPOP` spans means the worker is alive and polling Redis. A `BRPOP` span every one second usually means the queue was empty during that interval. `PUBLISH` appears only after the worker receives and processes a job.
+
+---
