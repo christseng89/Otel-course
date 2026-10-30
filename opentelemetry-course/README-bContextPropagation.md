@@ -1250,7 +1250,7 @@ The frontend has changed (TypeScript source change, hot-reloads automatically). 
 
 ```bash
 cd compose/
-docker compose -f compose.dev.yaml up -d
+docker compose -f compose.dev.yaml up --build -d
 
 docker compose -f compose.dev.yaml logs frontend
 docker compose -f compose.dev.yaml logs worker
@@ -1272,26 +1272,300 @@ Open Grafana at http://localhost:3010 → Explore → Tempo → Search
 
 Filter by `service.name = translation-frontend`. Open a recent trace.
 
-Expected span hierarchy:
+Observed span hierarchy for a request with `es`, `fr`, and `de` targets:
 
 ```
-request handler - /api/translate (3.93ms)
-└── create_translation_session (3.85ms)
-    ├── validate_request (15.4µs)
-    ├── enqueue_translation_jobs (2.02ms)
-    │   ├── lpush (1.22ms)
-    │   ├── lpush (1.11ms)
-    │   ├── translation-worker: process_translation_job - es (1.04s)
-    │   │   └── PUBLISH (435.22µs)
-    │   └── process_translation_job - fr (1.77s)
-    │       └── PUBLISH (390.62µs)
-    ├── translation-frontend: hset (411.32µs)
-    └── expire (149.41µs)
+translation-frontend: POST /api/translate
+└── middleware - jsonParser
+    └── middleware - corsMiddleware
+        └── request handler - /api/translate
+            └── create_translation_session
+                ├── validate_request
+                └── enqueue_translation_jobs
+                    ├── lpush
+                    ├── lpush
+                    ├── lpush
+                    ├── translation-worker: process_translation_job - es
+                    │   └── PUBLISH
+                    ├── translation-frontend: process_translation_result - es
+                    │   ├── hgetall
+                    │   ├── hincrby
+                    │   └── hset
+                    ├── translation-worker: process_translation_job - fr
+                    │   └── PUBLISH
+                    ├── translation-frontend: process_translation_result - fr
+                    │   ├── hset
+                    │   ├── hincrby
+                    │   └── hgetall
+                    ├── translation-worker: process_translation_job - de
+                    │   └── PUBLISH
+                    └── translation-frontend: process_translation_result - de
+                        ├── hset
+                        ├── hgetall
+                        ├── hincrby
+                        ├── hset
+                        └── hgetall
 
 ```
 
-The worker spans should appear as children of `enqueue_translation_jobs` with `span.kind = CONSUMER`. The `is_remote` flag indicates the span boundary crossed a service.
+```text
+Trace ID
+└── 關聯整個翻譯流程的所有 spans
+    ├── Session span：帶有 Session ID
+    ├── Enqueue span
+    ├── Worker span：帶有每個 target language 的 Job ID
+    └── Result span：帶有相同 Job ID 與 Session ID
+```
+
+The worker spans should appear as children of `enqueue_translation_jobs` with `span.kind = CONSUMER`. The result-processing spans are created from the worker-propagated context and carry the same Trace ID. The `is_remote` flag indicates the span boundary crossed a service.
 
 > The propagation implementation matches the README design and should connect frontend enqueue_translation_jobs to worker process_translation_job.
 ---
 
+# Hands on Worker-to-Frontend Propagation
+
+- Refer to `lab-result-context-propagation.md`
+
+## 1. Inject trace context into the result payload in `src/main.py`
+
+Open `app-versions/code/worker/src/main.py`. The `propagate` module is already imported. Before each call to `queue_consumer.publish_result(result)`, inject the active span context into the result dict.
+
+There are **two** publish calls: one in the unsupported-language early-exit path, and one at the bottom of the `with` block for success and exception paths.
+
+```python
+# Before each queue_consumer.publish_result(result) call, add:
+queue_consumer.publish_result(result)
+
+# After
+def publish_result_with_context(
+    queue_consumer: QueueConsumer, result: dict[str, Any]
+) -> None:
+    """Inject the current trace context and publish a translation result."""
+    trace_context: dict[str, str] = {}
+    propagate.inject(trace_context)
+    result["_traceContext"] = trace_context
+    queue_consumer.publish_result(result)
+
+    ...
+    publish_result_with_context(queue_consumer, result)
+    continue
+
+    ...
+    # Publish result
+    publish_result_with_context(queue_consumer, result)
+
+```
+
+> **Why inject inside the span?** `propagate.inject` captures the **currently active span**. Calling it while the `process_translation_job` span is active means the `traceparent` it writes points to that span, so the frontend can parent its `process_translation_result` span correctly.
+
+---
+
+## 2. Add `_traceContext` to the `TranslationResult` type
+
+Open `app-versions/code/frontend/src/types.ts` and add the optional field:
+
+```typescript
+// Before:
+export interface TranslationResult {
+  jobId: string;
+  sessionId: string;
+  targetLanguage: string;
+  translatedText?: string;
+  status: 'completed' | 'error';
+  durationMs: number;
+  completedAt: string;
+  error?: string;
+}
+
+// After:
+export interface TranslationResult {
+  jobId: string;
+  sessionId: string;
+  targetLanguage: string;
+  translatedText?: string;
+  status: 'completed' | 'error';
+  durationMs: number;
+  completedAt: string;
+  error?: string;
+  _traceContext?: Record<string, string>;
+}
+```
+
+---
+
+## 3. Add imports to `src/index.ts`
+
+Open `app-versions/code/frontend/src/index.ts` and add the required OTel and tracer imports:
+
+```typescript
+import {
+  propagation,
+  context,
+  SpanKind,
+  SpanStatusCode,
+} from '@opentelemetry/api';
+import { tracer, setSpanError } from './tracers.js';
+```
+
+---
+
+## 4. Extract the worker's context and wrap result processing in a span
+
+Still in `src/index.ts`, update the `subscribeToResults` callback. Extract the remote context from the result payload, then wrap the processing block in a `process_translation_result` span:
+
+```typescript
+// Before:
+await queueService.subscribeToResults(async (result: TranslationResult) => {
+  logger.info('Translation result received', { ... });
+  if (result.status === 'error') { ... }
+  try {
+    await queueService!.updateJobStatus(...);
+    sseManager!.sendEvent(...);
+    const session = await queueService!.getSession(result.sessionId);
+    if (session && session.status === 'completed') { ... }
+  } catch (error) { ... }
+});
+
+// After:
+await queueService.subscribeToResults(async (result: TranslationResult) => {
+  // Change here
+  // Restore the trace context propagated back from the worker.
+  const remoteCtx = propagation.extract(
+    context.active(),
+    result._traceContext ?? {},
+  );
+
+  logger.info("Translation result received", {
+    job_id: result.jobId,
+    session_id: result.sessionId,
+    target_language: result.targetLanguage,
+    status: result.status,
+  });
+
+  if (result.status === "error") {
+    logger.error("Translation job failed", {
+      job_id: result.jobId,
+      session_id: result.sessionId,
+      target_language: result.targetLanguage,
+      error: result.error,
+    });
+  }
+
+  await tracer.startActiveSpan(
+    `process_translation_result - ${result.targetLanguage}`,
+    {
+      kind: SpanKind.CONSUMER,
+      attributes: {
+        "translation.job_id": result.jobId,
+        "translation.session_id": result.sessionId,
+        "translation.target_language": result.targetLanguage,
+        "translation.status": result.status,
+      },
+    },
+    remoteCtx,
+    async (resultSpan) => {
+      try {
+        await queueService!.updateJobStatus(
+          result.sessionId,
+          result.targetLanguage,
+          result.status === "completed" ? "completed" : "error",
+          result.translatedText,
+          result.error,
+        );
+
+        const eventType =
+          result.status === "completed"
+            ? "translation_complete"
+            : "translation_error";
+
+        sseManager!.sendEvent(result.sessionId, eventType, result);
+
+        const session = await queueService!.getSession(result.sessionId);
+        if (session && session.status === "completed") {
+          sseManager!.sendEvent(result.sessionId, "session_complete", {
+            sessionId: result.sessionId,
+            status: "completed",
+          });
+          logger.info("Translation session completed", {
+            session_id: result.sessionId,
+            status: "completed",
+          });
+        }
+
+        resultSpan.setStatus({ code: SpanStatusCode.OK });
+      } catch (error) {
+        setSpanError(resultSpan, error);
+        logger.error("Error processing translation result", {
+          error: error instanceof Error ? error.message : "Unknown error",
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+      } finally {
+        resultSpan.end();
+      }
+    },
+  );
+});
+```
+
+> **Note:** `tracer.startActiveSpan` has three overloads. The 4-argument form `(name, options, context, fn)` is needed here to pass both `SpanOptions` (for `kind` and `attributes`) **and** a custom parent context extracted from the result payload.
+
+---
+
+## 5 Deploy
+
+```bash
+docker compose -f compose.dev.yaml up --build -d
+
+docker compose -f compose.dev.yaml logs frontend
+docker compose -f compose.dev.yaml logs worker
+```
+
+## 6  ✅ Verification
+
+**Generate traffic:** create a test_e2e.sh
+
+```sh
+for i in {1..5}; do
+  curl -s -X POST http://localhost:3001/api/translate \
+    -H "Content-Type: application/json" \
+    -d '{"text": "Hello world", "targetLanguages": ["es", "fr", "de"]}'
+  echo ""
+  sleep 2
+done
+```
+
+```bash
+cd ..
+bash test_e2e.sh
+
+```
+
+## 7 In Tempo (Grafana → Explore → Tempo)
+
+1. Search for service `translation-frontend`
+2. Open any trace
+3. You should see a span tree like:
+
+  ```text
+  POST /api/translate                              [translation-frontend]
+    └─ request handler - /api/translate            [translation-frontend]
+        └─ create_translation_session              [translation-frontend]
+            ├─ validate_request                    [translation-frontend]
+            └─ enqueue_translation_jobs            [translation-frontend]
+                ├─ process_translation_job - es    [translation-worker]
+                │   └─ PUBLISH                     [Redis]
+                ├─ process_translation_result - es [translation-frontend]
+                ├─ process_translation_job - fr    [translation-worker]
+                │   └─ PUBLISH                     [Redis]
+                ├─ process_translation_result - fr [translation-frontend]
+                ├─ process_translation_job - de    [translation-worker]
+                │   └─ PUBLISH                     [Redis]
+                └─ process_translation_result - de [translation-frontend]
+  ```
+4. The `process_translation_result` span should carry these attributes:
+   - `translation.job_id`
+   - `translation.session_id`
+   - `translation.target_language`
+   - `translation.status`
+
+---

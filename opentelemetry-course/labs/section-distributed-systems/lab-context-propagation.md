@@ -110,11 +110,11 @@ if job is None:
     continue
 
 # Extract job details
-job_id = job.get("jobId")
-session_id = job.get("sessionId")
+job_id = job.get("jobId", "")
+session_id = job.get("sessionId", "")
 text = job.get("text")
 source_lang = job.get("sourceLanguage", config.source_language)
-target_lang = job.get("targetLanguage")
+target_lang = job.get("targetLanguage", "")
 
 if not all([job_id, session_id, text, target_lang]):
     logger.error(f"Invalid job data: {job}")

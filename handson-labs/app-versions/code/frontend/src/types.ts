@@ -18,6 +18,8 @@ export interface TranslationResult {
   durationMs: number;
   completedAt: string;
   error?: string;
+  // Change here ...
+  _traceContext?: Record<string, string>;
 }
 
 export interface JobStatus {

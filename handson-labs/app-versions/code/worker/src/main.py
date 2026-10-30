@@ -8,7 +8,7 @@ import logging
 import time
 import random
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from .config import Config
 from .queue import QueueConsumer
 from .translator import Translator
@@ -36,6 +36,16 @@ def handle_shutdown(signum: int, frame) -> None:
     global shutdown_flag
     logger.info(f"Received signal {signum}, initiating graceful shutdown...")
     shutdown_flag = True
+
+# Inject trace context and publish result
+def publish_result_with_context(
+    queue_consumer: QueueConsumer, result: dict[str, Any]
+) -> None:
+    """Inject the current trace context and publish a translation result."""
+    trace_context: dict[str, str] = {}
+    propagate.inject(trace_context)
+    result["_traceContext"] = trace_context
+    queue_consumer.publish_result(result)
 
 
 def main() -> None:
@@ -133,11 +143,12 @@ def main() -> None:
                                 "completedAt": datetime.now(timezone.utc).isoformat()
                                 + "Z",
                             }
-                            queue_consumer.publish_result(result)
+
+                            publish_result_with_context(queue_consumer, result)
                             continue
 
                         # Translate
-                        # Ensure text is not None 
+                        # Ensure text is not None
                         assert text is not None
                         logger.info(
                             f"Processing job {job_id}: {source_lang} -> {target_lang}"
@@ -155,7 +166,12 @@ def main() -> None:
                         duration_ms = int((time.time() - start_time) * 1000)
 
                         # Context Propagation
-                        span.set_attribute("translation.duration_ms", duration_ms)
+                        span.set_attributes(
+                            {
+                                "translation.duration_ms": duration_ms,
+                                "trace.id": f"{span.get_span_context().trace_id:032x}",
+                            }
+                        )
 
                         result = {
                             "jobId": job_id,
@@ -191,7 +207,7 @@ def main() -> None:
                         }
 
                     # Publish result
-                    queue_consumer.publish_result(result)
+                    publish_result_with_context(queue_consumer, result)
 
             except KeyboardInterrupt:
                 logger.info("Received keyboard interrupt")
