@@ -40,6 +40,43 @@ def handle_shutdown(signum: int, frame) -> None:
     logger.info(f"Received signal {signum}, initiating graceful shutdown...")
     shutdown_flag = True
 
+
+# Custom Metrics - Refactoring
+def record_translation_duration(
+    duration_ms: int, target_language: str, status: str
+) -> None:
+    """Record translation processing duration with its outcome."""
+    translation_duration.record(
+        # Change to ms
+        duration_ms,
+        attributes={
+            "translation.target_language": target_language,
+            "translation.status": status,
+        },
+    )
+
+
+# Custom Metrics - Refactoring
+def add_job_total(target_language: str, status: str) -> None:
+    """Record one translation job with its outcome."""
+    jobs_total.add(
+        1,
+        attributes={
+            "translation.target_language": target_language,
+            "translation.status": status,
+        },
+    )
+
+
+# Custom Metrics - Refactoring
+def add_active_jobs(amount: int, target_language: str) -> None:
+    """Adjust the number of active translation jobs."""
+    active_jobs.add(
+        amount,
+        attributes={"translation.target_language": target_language},
+    )
+
+
 # Inject trace context and publish result
 def publish_result_with_context(
     queue_consumer: QueueConsumer, result: dict[str, Any]
@@ -131,9 +168,7 @@ def main() -> None:
                 ) as span:
                     # Custom Metrics
                     start_time = time.time()
-                    active_jobs.add(
-                        1, attributes={"translation.target_language": target_lang}
-                    )
+                    add_active_jobs(1, target_lang)
                     try:
                         # Validate target language
                         if target_lang not in config.supported_languages:
@@ -142,20 +177,19 @@ def main() -> None:
                             # Context Propagation
                             span.set_status(Status(StatusCode.ERROR, error_msg))
                             # Custom Metrics
-                            jobs_total.add(
-                                1,
-                                attributes={
-                                    "translation.target_language": target_lang,
-                                    "translation.status": "error",
-                                },
+                            duration_ms = int((time.time() - start_time) * 1000)
+                            record_translation_duration(
+                                duration_ms, target_lang, "error"
                             )
+                            add_job_total(target_lang, "error")
                             result = {
                                 "jobId": job_id,
                                 "sessionId": session_id,
                                 "targetLanguage": target_lang,
                                 "status": "error",
                                 "error": error_msg,
-                                "durationMs": 0,
+                                # Custom Metrics
+                                "durationMs": duration_ms,
                                 "completedAt": datetime.now(timezone.utc).isoformat()
                                 + "Z",
                             }
@@ -178,19 +212,10 @@ def main() -> None:
                             )
                             duration_ms = int((time.time() - start_time) * 1000)
                             # Custom Metrics
-                            translation_duration.record(
-                                duration_ms / 1000,
-                                attributes={
-                                    "translation.target_language": target_lang
-                                },
+                            record_translation_duration(
+                                duration_ms, target_lang, "completed"
                             )
-                            jobs_total.add(
-                                1,
-                                attributes={
-                                    "translation.target_language": target_lang,
-                                    "translation.status": "completed",
-                                },
-                            )
+                            add_job_total(target_lang, "completed")
                             # Context Propagation
                             span.set_attributes(
                                 {
@@ -224,13 +249,8 @@ def main() -> None:
                         span.record_exception(e)
                         span.set_status(Status(StatusCode.ERROR, error_msg))
                         # Custom Metrics
-                        jobs_total.add(
-                            1,
-                            attributes={
-                                "translation.target_language": target_lang,
-                                "translation.status": "error",
-                            },
-                        )
+                        record_translation_duration(duration_ms, target_lang, "error")
+                        add_job_total(target_lang, "error")
                         result = {
                             "jobId": job_id,
                             "sessionId": session_id,
@@ -242,9 +262,7 @@ def main() -> None:
                         }
                     # Custom Metrics
                     finally:
-                        active_jobs.add(
-                            -1, attributes={"translation.target_language": target_lang}
-                        )
+                        add_active_jobs(-1, target_lang)
 
                     # Publish result
                     publish_result_with_context(queue_consumer, result)

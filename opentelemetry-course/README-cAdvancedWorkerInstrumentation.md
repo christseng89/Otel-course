@@ -55,26 +55,58 @@ Add the import:
 from .metrics import jobs_total, translation_duration, active_jobs
 ```
 
-Inside the `process_translation_job` span, add `active_jobs.add(1)` right before the `try`, add a `finally` block to the `try/except` that calls `active_jobs.add(-1)`, and record `translation_duration` and `jobs_total` after a successful translate:
+Use a helper so all duration measurements apply the same attributes:
+
+```python
+def record_translation_duration(
+    duration_ms: int, target_lang: str, status: str
+) -> None:
+    translation_duration.record(
+        duration_ms / 1000,
+        attributes={
+            "translation.target_language": target_lang,
+            "translation.status": status,
+        },
+    )
+```
+
+Use the same pattern for the job counter:
+
+```python
+def add_job_total(target_lang: str, status: str) -> None:
+    jobs_total.add(
+        1,
+        attributes={
+            "translation.target_language": target_lang,
+            "translation.status": status,
+        },
+    )
+```
+
+Use a helper for both active-job increments and decrements:
+
+```python
+def add_active_jobs(amount: int, target_lang: str) -> None:
+    active_jobs.add(
+        amount,
+        attributes={"translation.target_language": target_lang},
+    )
+```
+
+Inside the `process_translation_job` span, call `add_active_jobs(1, target_lang)` right before the `try`, call `add_active_jobs(-1, target_lang)` in the `finally` block, and record `translation_duration` and `jobs_total` after a successful translate:
 
 ```python
 ) as span:
     # Custom Metrics
     start_time = time.time()
-    active_jobs.add(
-        1, attributes={"translation.target_language": target_lang}
-    )
+    add_active_jobs(1, target_lang)
 ...
 # Context Propagation
 span.set_status(Status(StatusCode.ERROR, error_msg))
 # Custom Metrics
-jobs_total.add(
-    1,
-    attributes={
-        "translation.target_language": target_lang,
-        "translation.status": "error",
-    },
-)
+duration_ms = int((time.time() - start_time) * 1000)
+record_translation_duration(duration_ms, target_lang, "error")
+add_job_total(target_lang, "error")
 ...
 # Custom Metrics
 else:
@@ -83,19 +115,8 @@ else:
 ...
 duration_ms = int((time.time() - start_time) * 1000)
     # Custom Metrics
-    translation_duration.record(
-        duration_ms / 1000,
-        attributes={
-            "translation.target_language": target_lang
-        },
-    )
-    jobs_total.add(
-        1,
-        attributes={
-            "translation.target_language": target_lang,
-            "translation.status": "completed",
-        },
-    )
+    record_translation_duration(duration_ms, target_lang, "completed")
+    add_job_total(target_lang, "completed")
     # Context Propagation
 ...
 
@@ -103,20 +124,13 @@ duration_ms = int((time.time() - start_time) * 1000)
 span.record_exception(e)
 span.set_status(Status(StatusCode.ERROR, error_msg))
 # Custom Metrics
-jobs_total.add(
-    1,
-    attributes={
-        "translation.target_language": target_lang,
-        "translation.status": "error",
-    },
-)
+record_translation_duration(duration_ms, target_lang, "error")
+add_job_total(target_lang, "error")
 ...
 ~
 # Custom Metrics
 finally:
-    active_jobs.add(
-        -1, attributes={"translation.target_language": target_lang}
-    )
+    add_active_jobs(-1, target_lang)
 
 # Publish result
 publish_result_with_context(queue_consumer, result)
@@ -137,11 +151,31 @@ curl -X POST http://localhost:3001/api/translate \
   -d '{"text": "Hello world", "targetLanguages": ["es", "fr"]}'
 ```
 
+```prompt
+I want to test the translation service. Here is an example curl request. Generate a script test_traffic.sh in handson-labs folder that generates traffic every 0.2 to 0.7 seconds. The traffic should be diverse and cover success and failure scenarios. Here is one example of curl request. Supported languages are "es", "fr", "de".
+
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello world", "targetLanguages": ["es", "fr"]}'
+
+```
+
+```bash
+cd ..
+bash test_traffic.sh
+
+```
+
 ```promql
 rate(translation_jobs_total{exported_job="translation-worker"}[2m])
-histogram_quantile(0.95, rate(translation_duration_seconds_bucket{exported_job="translation-worker"}[5m]))
 translation_duration_seconds_count{exported_job="translation-worker"}
 translation_active_jobs{exported_job="translation-worker"}
+
+<!-- histogram_quantile(0.95, rate(translation_duration_seconds_bucket{exported_job="translation-worker"}[5m]))
+translation_duration_seconds_bucket{exported_job="translation-worker"} -->
+
+histogram_quantile(0.95, rate(translation_duration_milliseconds_bucket{exported_job="translation-worker"}[5m]))
+translation_duration_milliseconds_bucket{exported_job="translation-worker"}
 ```
 
 ---

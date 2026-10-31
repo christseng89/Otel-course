@@ -14,8 +14,9 @@ jobs_total = meter.create_counter(
 # Distribution of translation execution time
 translation_duration = meter.create_histogram(
     name="translation.duration",
-    description="Time taken to translate a single job",
-    unit="s",
+    description="Time taken to process a single translation job",
+    # Change to ms
+    unit="ms",
 )
 
 # Current number of jobs being actively processed
