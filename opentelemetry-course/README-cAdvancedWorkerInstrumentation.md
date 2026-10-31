@@ -252,3 +252,91 @@ Changes are hot-reloaded. Generate traffic and open a trace in Tempo. Expected s
 Click `translate_text` and confirm attributes `translation.source_language`, `translation.target_language`, `translation.text_length`, `translation.output_length` are all present.
 
 ---
+
+# Hands on Redis Exporter Metrics
+
+- Refer to `lab-redis-metrics.md`
+
+## 1. Add `redis-exporter` to `compose/compose.app.yaml`
+
+Open `compose/compose.app.yaml` and add the `redis-exporter` service after the `redis` service:
+
+```yaml
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.81.0-alpine
+    container_name: redis-exporter
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    ports:
+      - '9121:9121'
+    networks:
+      - app
+      - observability
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+```
+
+## 2. Add the Redis scrape job to `compose/prometheus.yaml`
+
+Open `compose/prometheus.yaml` and add a new scrape job at the end of `scrape_configs`:
+
+```yaml
+- job_name: 'redis'
+  static_configs:
+    - targets: ['redis-exporter:9121']
+```
+
+## 3. Deploy the exporter and reload Prometheus
+
+```bash
+cd compose/
+docker compose -f compose.dev.yaml up -d redis-exporter
+docker compose -f compose.dev.yaml logs redis-exporter
+
+docker compose -f compose.dev.yaml restart prometheus
+docker compose -f compose.dev.yaml logs prometheus
+
+```
+
+## 4. Verify the exporter is up
+
+```bash
+curl -s http://localhost:9121/metrics | grep redis_up
+```
+
+Expected output:
+
+```
+redis_up 1
+```
+
+## 5. Verify Prometheus is scraping the target
+
+Open Prometheus at http://localhost:9100/targets and confirm the `redis` job shows `UP`.
+
+## 6. Explore Redis metrics in Grafana
+
+Open Grafana at http://localhost:3010 → Explore → Prometheus.
+
+Try these queries:
+
+| Query                            | What it shows                                |
+| -------------------------------- | -------------------------------------------- |
+| `redis_memory_used_bytes`        | Current memory consumed by Redis             |
+| `redis_connected_clients`        | Active connections at this moment            |
+| `rate(redis_commands_total[1m])` | Commands per second across all clients       |
+| `redis_db_keys{db="db0"}`        | Total number of keys in the default database |
+
+Generate some traffic first:
+
+```bash
+curl -X POST http://localhost:3001/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "The quick brown fox jumps over the lazy dog", "targetLanguages": ["es", "fr", "de"]}'
+```
+
+Then re-run the Prometheus queries to see the metrics change.
+
+---
