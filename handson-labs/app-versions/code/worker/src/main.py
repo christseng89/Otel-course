@@ -15,6 +15,9 @@ from .translator import Translator
 
 from .instrumentation import setup_instrumentation, shutdown_instrumentation
 
+# Custom Metrics
+from .metrics import jobs_total, translation_duration, active_jobs
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -126,6 +129,11 @@ def main() -> None:
                         "translation.text_length": len(text) if text else 0,
                     },
                 ) as span:
+                    # Custom Metrics
+                    start_time = time.time()
+                    active_jobs.add(
+                        1, attributes={"translation.target_language": target_lang}
+                    )
                     try:
                         # Validate target language
                         if target_lang not in config.supported_languages:
@@ -133,6 +141,14 @@ def main() -> None:
                             logger.error(error_msg)
                             # Context Propagation
                             span.set_status(Status(StatusCode.ERROR, error_msg))
+                            # Custom Metrics
+                            jobs_total.add(
+                                1,
+                                attributes={
+                                    "translation.target_language": target_lang,
+                                    "translation.status": "error",
+                                },
+                            )
                             result = {
                                 "jobId": job_id,
                                 "sessionId": session_id,
@@ -143,49 +159,60 @@ def main() -> None:
                                 "completedAt": datetime.now(timezone.utc).isoformat()
                                 + "Z",
                             }
+                        # Custom Metrics
+                        else:
+                            # Translate
+                            # Ensure text is not None
+                            assert text is not None
+                            logger.info(
+                                f"Processing job {job_id}: {source_lang} -> {target_lang}"
+                            )
 
-                            publish_result_with_context(queue_consumer, result)
-                            continue
+                            # Simulate realistic API latency (0.5-2 seconds)
+                            delay = random.uniform(0.5, 2.0)
+                            logger.debug(f"Simulating {delay:.2f}s translation latency")
+                            time.sleep(delay)
 
-                        # Translate
-                        # Ensure text is not None
-                        assert text is not None
-                        logger.info(
-                            f"Processing job {job_id}: {source_lang} -> {target_lang}"
-                        )
-                        start_time = time.time()
+                            translated_text = translator.translate(
+                                text, source_lang, target_lang
+                            )
+                            duration_ms = int((time.time() - start_time) * 1000)
+                            # Custom Metrics
+                            translation_duration.record(
+                                duration_ms / 1000,
+                                attributes={
+                                    "translation.target_language": target_lang
+                                },
+                            )
+                            jobs_total.add(
+                                1,
+                                attributes={
+                                    "translation.target_language": target_lang,
+                                    "translation.status": "completed",
+                                },
+                            )
+                            # Context Propagation
+                            span.set_attributes(
+                                {
+                                    "translation.duration_ms": duration_ms,
+                                    "trace.id": f"{span.get_span_context().trace_id:032x}",
+                                }
+                            )
 
-                        # Simulate realistic API latency (0.5-2 seconds)
-                        delay = random.uniform(0.5, 2.0)
-                        logger.debug(f"Simulating {delay:.2f}s translation latency")
-                        time.sleep(delay)
-
-                        translated_text = translator.translate(
-                            text, source_lang, target_lang
-                        )
-                        duration_ms = int((time.time() - start_time) * 1000)
-
-                        # Context Propagation
-                        span.set_attributes(
-                            {
-                                "translation.duration_ms": duration_ms,
-                                "trace.id": f"{span.get_span_context().trace_id:032x}",
+                            result = {
+                                "jobId": job_id,
+                                "sessionId": session_id,
+                                "targetLanguage": target_lang,
+                                "translatedText": translated_text,
+                                "status": "completed",
+                                "durationMs": duration_ms,
+                                "completedAt": datetime.now(timezone.utc).isoformat()
+                                + "Z",
                             }
-                        )
 
-                        result = {
-                            "jobId": job_id,
-                            "sessionId": session_id,
-                            "targetLanguage": target_lang,
-                            "translatedText": translated_text,
-                            "status": "completed",
-                            "durationMs": duration_ms,
-                            "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
-                        }
-
-                        logger.info(
-                            f"Job {job_id} completed successfully in {duration_ms}ms"
-                        )
+                            logger.info(
+                                f"Job {job_id} completed successfully in {duration_ms}ms"
+                            )
 
                     except Exception as e:
                         duration_ms = int((time.time() - start_time) * 1000)
@@ -196,6 +223,14 @@ def main() -> None:
                         # Context Propagation
                         span.record_exception(e)
                         span.set_status(Status(StatusCode.ERROR, error_msg))
+                        # Custom Metrics
+                        jobs_total.add(
+                            1,
+                            attributes={
+                                "translation.target_language": target_lang,
+                                "translation.status": "error",
+                            },
+                        )
                         result = {
                             "jobId": job_id,
                             "sessionId": session_id,
@@ -205,6 +240,11 @@ def main() -> None:
                             "durationMs": duration_ms,
                             "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
                         }
+                    # Custom Metrics
+                    finally:
+                        active_jobs.add(
+                            -1, attributes={"translation.target_language": target_lang}
+                        )
 
                     # Publish result
                     publish_result_with_context(queue_consumer, result)
