@@ -179,3 +179,76 @@ translation_duration_milliseconds_bucket{exported_job="translation-worker"}
 ```
 
 ---
+# Hands on Worker Custom Traces / Spans
+
+- Refer to `lab-worker-traces-manual.md`
+
+## 1. Update `app-versions/code/worker/src/translator.py`
+
+Add the imports and a module-level tracer at the top:
+
+```python
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
+
+tracer = trace.get_tracer(__name__)
+```
+
+Wrap the `translate()` method body in a span:
+
+```python
+def translate(self, text: str, source: str, target: str) -> str:
+    if not text or not text.strip():
+        return text
+
+    with tracer.start_as_current_span(
+        "translate_text",
+        attributes={
+            "translation.source_language": source,
+            "translation.target_language": target,
+            "translation.text_length": len(text),
+        },
+    ) as span:
+        try:
+            translation = argostranslate.translate.get_translation_from_codes(source, target)
+
+            if translation is None:
+                error_msg = f"Translation model not available for {source} -> {target}"
+                span.set_status(trace.Status(StatusCode.ERROR, error_msg))
+                raise ValueError(error_msg)
+
+            translated_text = translation.translate(text)
+            span.set_attribute("translation.output_length", len(translated_text))
+            span.set_status(trace.Status(StatusCode.OK))
+            return translated_text
+
+        except ValueError:
+            raise
+        except Exception as e:
+            span.record_exception(e)
+            span.set_status(trace.Status(StatusCode.ERROR, str(e)))
+            raise RuntimeError(f"Translation failed ({source} -> {target}): {e}") from e
+```
+
+## 2. Deploy and verify
+
+```bash
+cd compose
+docker compose -f compose.dev.yaml up --build worker -d
+docker compose -f compose.dev.yaml logs worker
+
+cd ..
+bash test_traffic.sh
+```
+
+Changes are hot-reloaded. Generate traffic and open a trace in Tempo. Expected span hierarchy:
+
+```
+[translation-worker] process_translation_job - fr
+  └─ [translation-worker] translate_text
+       └─ [translation-worker] PUBLISH  (Redis auto-span)
+```
+
+Click `translate_text` and confirm attributes `translation.source_language`, `translation.target_language`, `translation.text_length`, `translation.output_length` are all present.
+
+---
