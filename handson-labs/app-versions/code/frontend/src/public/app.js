@@ -1,9 +1,9 @@
 // Constants
 const MAX_HISTORY_ITEMS = 20;
 const LANGUAGE_NAMES = {
-  es: 'Spanish',
-  fr: 'French',
-  de: 'German',
+  es: "Spanish",
+  fr: "French",
+  de: "German",
 };
 
 // State
@@ -20,18 +20,18 @@ function getCurrentHistoryItem() {
 }
 
 function closeHistoryPanel() {
-  historyPanel.style.display = 'none';
-  historyToggle.textContent = '📋 History';
+  historyPanel.style.display = "none";
+  historyToggle.textContent = "📋 History";
 }
 
 // Load history from localStorage on startup
 function loadHistory() {
-  const saved = localStorage.getItem('translationHistory');
+  const saved = localStorage.getItem("translationHistory");
   if (saved) {
     try {
       sessionHistory = JSON.parse(saved);
     } catch (e) {
-      console.error('Failed to load history:', e);
+      console.error("Failed to load history:", e);
       sessionHistory = [];
     }
   }
@@ -41,9 +41,9 @@ function loadHistory() {
 function saveHistory() {
   try {
     const historyToSave = sessionHistory.slice(-MAX_HISTORY_ITEMS);
-    localStorage.setItem('translationHistory', JSON.stringify(historyToSave));
+    localStorage.setItem("translationHistory", JSON.stringify(historyToSave));
   } catch (e) {
-    console.error('Failed to save history:', e);
+    console.error("Failed to save history:", e);
   }
 }
 
@@ -83,15 +83,15 @@ function navigateHistory(direction) {
     closeHistoryPanel();
     showResults(historyItem.session, historyItem.originalText);
     updateHistoryUI();
-    resultsSection.scrollIntoView({ behavior: 'smooth' });
+    resultsSection.scrollIntoView({ behavior: "smooth" });
   }
 }
 
 // Update history UI controls
 function updateHistoryUI() {
-  const prevBtn = document.getElementById('prevBtn');
-  const nextBtn = document.getElementById('nextBtn');
-  const historyPosition = document.getElementById('historyPosition');
+  const prevBtn = document.getElementById("prevBtn");
+  const nextBtn = document.getElementById("nextBtn");
+  const historyPosition = document.getElementById("historyPosition");
 
   prevBtn.disabled = currentHistoryIndex <= 0;
   nextBtn.disabled = currentHistoryIndex >= sessionHistory.length - 1;
@@ -99,7 +99,7 @@ function updateHistoryUI() {
   if (sessionHistory.length > 0) {
     historyPosition.textContent = `${currentHistoryIndex + 1} of ${sessionHistory.length}`;
   } else {
-    historyPosition.textContent = '';
+    historyPosition.textContent = "";
   }
 
   renderHistoryList();
@@ -107,7 +107,7 @@ function updateHistoryUI() {
 
 // Render history list
 function renderHistoryList() {
-  const historyList = document.getElementById('historyList');
+  const historyList = document.getElementById("historyList");
 
   if (sessionHistory.length === 0) {
     historyList.innerHTML =
@@ -115,15 +115,15 @@ function renderHistoryList() {
     return;
   }
 
-  historyList.innerHTML = '';
+  historyList.innerHTML = "";
 
   // Show in reverse order (newest first)
   for (let i = sessionHistory.length - 1; i >= 0; i--) {
     const item = sessionHistory[i];
     const isActive = i === currentHistoryIndex;
 
-    const itemEl = document.createElement('div');
-    itemEl.className = `history-item ${isActive ? 'active' : ''}`;
+    const itemEl = document.createElement("div");
+    itemEl.className = `history-item ${isActive ? "active" : ""}`;
     itemEl.onclick = () => {
       currentHistoryIndex = i;
       const historyItem = sessionHistory[i];
@@ -136,12 +136,12 @@ function renderHistoryList() {
       closeHistoryPanel();
       showResults(historyItem.session, historyItem.originalText);
       updateHistoryUI();
-      resultsSection.scrollIntoView({ behavior: 'smooth' });
+      resultsSection.scrollIntoView({ behavior: "smooth" });
     };
 
     const text =
       item.originalText.length > 50
-        ? item.originalText.substring(0, 50) + '...'
+        ? item.originalText.substring(0, 50) + "..."
         : item.originalText;
 
     const date = new Date(item.timestamp);
@@ -165,29 +165,29 @@ loadHistory();
 updateHistoryUI();
 
 // DOM elements
-const form = document.getElementById('translationForm');
-const submitBtn = document.getElementById('submitBtn');
-const errorDiv = document.getElementById('error');
-const resultsSection = document.getElementById('resultsSection');
-const sessionInfo = document.getElementById('sessionInfo');
-const resultsGrid = document.getElementById('resultsGrid');
-const prevBtn = document.getElementById('prevBtn');
-const nextBtn = document.getElementById('nextBtn');
-const historyToggle = document.getElementById('historyToggle');
-const historyPanel = document.getElementById('historyPanel');
+const form = document.getElementById("translationForm");
+const submitBtn = document.getElementById("submitBtn");
+const errorDiv = document.getElementById("error");
+const resultsSection = document.getElementById("resultsSection");
+const sessionInfo = document.getElementById("sessionInfo");
+const resultsGrid = document.getElementById("resultsGrid");
+const prevBtn = document.getElementById("prevBtn");
+const nextBtn = document.getElementById("nextBtn");
+const historyToggle = document.getElementById("historyToggle");
+const historyPanel = document.getElementById("historyPanel");
 
 // History navigation
-prevBtn.addEventListener('click', () => navigateHistory(-1));
-nextBtn.addEventListener('click', () => navigateHistory(1));
+prevBtn.addEventListener("click", () => navigateHistory(-1));
+nextBtn.addEventListener("click", () => navigateHistory(1));
 
-historyToggle.addEventListener('click', () => {
-  const isVisible = historyPanel.style.display !== 'none';
-  historyPanel.style.display = isVisible ? 'none' : 'block';
-  historyToggle.textContent = isVisible ? '📋 History' : '✖ Close History';
+historyToggle.addEventListener("click", () => {
+  const isVisible = historyPanel.style.display !== "none";
+  historyPanel.style.display = isVisible ? "none" : "block";
+  historyToggle.textContent = isVisible ? "📋 History" : "✖ Close History";
 });
 
 // Form submission handler
-form.addEventListener('submit', async (e) => {
+form.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   // Clear previous errors
@@ -195,38 +195,38 @@ form.addEventListener('submit', async (e) => {
 
   // Get form data
   const formData = new FormData(form);
-  const text = formData.get('text').trim();
-  const targetLanguages = formData.getAll('targetLanguages');
+  const text = formData.get("text").trim();
+  const targetLanguages = formData.getAll("targetLanguages");
 
   // Validate
   if (!text) {
-    showError('Please enter some text to translate');
+    showError("Please enter some text to translate");
     return;
   }
 
   if (targetLanguages.length === 0) {
-    showError('Please select at least one target language');
+    showError("Please select at least one target language");
     return;
   }
 
   if (targetLanguages.length > 3) {
-    showError('Maximum 3 target languages allowed');
+    showError("Maximum 3 target languages allowed");
     return;
   }
 
   // Disable form
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Submitting...';
+  submitBtn.textContent = "Submitting...";
 
   // Close history panel if open
   closeHistoryPanel();
 
   try {
     // Submit translation request
-    const response = await fetch('/api/translate', {
-      method: 'POST',
+    const response = await fetch("/api/translate", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         text,
@@ -237,7 +237,7 @@ form.addEventListener('submit', async (e) => {
     if (!response.ok) {
       const errorData = await response.json();
       throw new Error(
-        errorData.error || 'Failed to submit translation request',
+        errorData.error || "Failed to submit translation request",
       );
     }
 
@@ -255,20 +255,20 @@ form.addEventListener('submit', async (e) => {
   } catch (error) {
     showError(error.message);
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Translate';
+    submitBtn.textContent = "Translate";
   }
 });
 
 // Show error message
 function showError(message) {
   errorDiv.textContent = message;
-  errorDiv.style.display = 'block';
+  errorDiv.style.display = "block";
 }
 
 // Hide error message
 function hideError() {
-  errorDiv.style.display = 'none';
-  errorDiv.textContent = '';
+  errorDiv.style.display = "none";
+  errorDiv.textContent = "";
 }
 
 // Show results section
@@ -282,47 +282,47 @@ function showResults(session, originalText, isLive = false) {
 
   // Add/remove live indicator
   if (isLive) {
-    sessionInfo.classList.add('live');
+    sessionInfo.classList.add("live");
   } else {
-    sessionInfo.classList.remove('live');
+    sessionInfo.classList.remove("live");
   }
 
   // Create result cards
-  resultsGrid.innerHTML = '';
+  resultsGrid.innerHTML = "";
   for (const job of session.jobs) {
     // Determine status and content from job if available
-    const status = job.status || 'queued';
+    const status = job.status || "queued";
     const content = job.translatedText || job.error || null;
     const card = createResultCard(job.targetLanguage, status, content);
     resultsGrid.appendChild(card);
   }
 
   // Show results section
-  resultsSection.style.display = 'block';
+  resultsSection.style.display = "block";
 
   // Scroll to results
-  resultsSection.scrollIntoView({ behavior: 'smooth' });
+  resultsSection.scrollIntoView({ behavior: "smooth" });
 }
 
 // Create result card
 function createResultCard(language, status, content = null) {
-  const card = document.createElement('div');
+  const card = document.createElement("div");
   card.className = `result-card ${status}`;
   card.id = `result-${language}`;
 
   const statusHtml =
-    status === 'processing'
+    status === "processing"
       ? `<span class="status-badge status-${status}"><span class="spinner"></span> ${status}</span>`
       : `<span class="status-badge status-${status}">${status}</span>`;
 
-  let contentHtml = '';
-  if (status === 'queued') {
+  let contentHtml = "";
+  if (status === "queued") {
     contentHtml = '<p class="result-content">Waiting in queue...</p>';
-  } else if (status === 'processing') {
+  } else if (status === "processing") {
     contentHtml = '<p class="result-content">Translating...</p>';
-  } else if (status === 'completed' && content) {
+  } else if (status === "completed" && content) {
     contentHtml = `<p class="result-content">${content}</p>`;
-  } else if (status === 'error' && content) {
+  } else if (status === "error" && content) {
     contentHtml = `<p class="result-content error-content">Error: ${content}</p>`;
   }
 
@@ -357,10 +357,10 @@ function connectToSSE(sessionId) {
   // Create new EventSource
   eventSource = new EventSource(`/api/translate/${sessionId}/events`);
 
-  eventSource.addEventListener('translation_complete', (event) => {
+  eventSource.addEventListener("translation_complete", (event) => {
     const result = JSON.parse(event.data);
-    console.log('Translation complete:', result);
-    updateResultCard(result.targetLanguage, 'completed', result.translatedText);
+    console.log("Translation complete:", result);
+    updateResultCard(result.targetLanguage, "completed", result.translatedText);
 
     // Update history with completed translation
     const historyItem = getCurrentHistoryItem();
@@ -369,17 +369,17 @@ function connectToSSE(sessionId) {
         (j) => j.targetLanguage === result.targetLanguage,
       );
       if (job) {
-        job.status = 'completed';
+        job.status = "completed";
         job.translatedText = result.translatedText;
         saveHistory();
       }
     }
   });
 
-  eventSource.addEventListener('translation_error', (event) => {
+  eventSource.addEventListener("translation_error", (event) => {
     const result = JSON.parse(event.data);
-    console.error('Translation error:', result);
-    updateResultCard(result.targetLanguage, 'error', result.error);
+    console.error("Translation error:", result);
+    updateResultCard(result.targetLanguage, "error", result.error);
 
     // Update history with error
     const historyItem = getCurrentHistoryItem();
@@ -388,16 +388,16 @@ function connectToSSE(sessionId) {
         (j) => j.targetLanguage === result.targetLanguage,
       );
       if (job) {
-        job.status = 'error';
+        job.status = "error";
         job.error = result.error;
         saveHistory();
       }
     }
   });
 
-  eventSource.addEventListener('session_complete', (event) => {
+  eventSource.addEventListener("session_complete", (event) => {
     const result = JSON.parse(event.data);
-    console.log('Session complete:', result);
+    console.log("Session complete:", result);
 
     // Close SSE connection
     if (eventSource) {
@@ -407,14 +407,14 @@ function connectToSSE(sessionId) {
 
     // Re-enable form
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Translate';
+    submitBtn.textContent = "Translate";
   });
 
-  eventSource.addEventListener('error', (error) => {
-    console.error('SSE error:', error);
+  eventSource.addEventListener("error", (error) => {
+    console.error("SSE error:", error);
 
     if (eventSource.readyState === EventSource.CLOSED) {
-      console.log('SSE connection closed');
+      console.log("SSE connection closed");
     }
   });
 
@@ -425,8 +425,8 @@ function connectToSSE(sessionId) {
       for (const job of currentSession.jobs) {
         // Only update if still queued
         const card = document.getElementById(`result-${job.targetLanguage}`);
-        if (card && card.textContent.includes('Waiting in queue')) {
-          updateResultCard(job.targetLanguage, 'processing');
+        if (card && card.textContent.includes("Waiting in queue")) {
+          updateResultCard(job.targetLanguage, "processing");
         }
       }
     }
@@ -434,7 +434,7 @@ function connectToSSE(sessionId) {
 }
 
 // Cleanup on page unload
-window.addEventListener('beforeunload', () => {
+window.addEventListener("beforeunload", () => {
   if (eventSource) {
     eventSource.close();
   }

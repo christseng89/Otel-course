@@ -11,13 +11,11 @@ import { createTranslationRouter } from "./routes/translation.js";
 import type { TranslationResult } from "./types.js";
 import { logger } from "./logger.js";
 
-// Change here
 import {
-  propagation,
-  context,
   SpanKind,
   SpanStatusCode,
-} from "@opentelemetry/api";
+  extractContext,
+} from "./otel-api.js";
 import { tracer, setSpanError } from "./tracers.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -57,12 +55,8 @@ async function startServer(): Promise<void> {
 
     // Subscribe to translation results
     await queueService.subscribeToResults(async (result: TranslationResult) => {
-      // Change here
       // Restore the trace context propagated back from the worker.
-      const remoteCtx = propagation.extract(
-        context.active(),
-        result._traceContext ?? {},
-      );
+      const remoteCtx = extractContext(result._traceContext ?? {});
 
       logger.info("Translation result received", {
         job_id: result.jobId,

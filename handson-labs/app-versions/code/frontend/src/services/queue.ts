@@ -1,5 +1,6 @@
-// Context Propagation
-import { propagation, context } from "@opentelemetry/api";
+import {
+  injectActiveContext,
+} from "../otel-api.js";
 
 import { Redis } from "ioredis";
 import type {
@@ -72,7 +73,7 @@ export class QueueService {
     // Inject current trace context into the job payload so the worker
     // can restore it and create a child span linked to this trace.
     const _traceContext: Record<string, string> = {};
-    propagation.inject(context.active(), _traceContext);
+    injectActiveContext(_traceContext);
 
     const jobJson = JSON.stringify({ ...job, _traceContext });
     await this.client.lpush(this.queueKey, jobJson);

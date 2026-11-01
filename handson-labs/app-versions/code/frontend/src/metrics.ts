@@ -1,13 +1,13 @@
-import { metrics } from '@opentelemetry/api';
-import type { Counter } from '@opentelemetry/api';
+import { getMeter } from "./otel-api.js";
+import type { Counter } from "./otel-api.js";
 
-const meter = metrics.getMeter('translation-frontend', '1.0.0');
+const meter = getMeter("translation-frontend", "1.0.0");
 
 type CounterKey =
-  | 'translationRequests'
-  | 'jobsEnqueued'
-  | 'validationErrors'
-  | 'serverErrors';
+  | "translationRequests"
+  | "jobsEnqueued"
+  | "validationErrors"
+  | "serverErrors";
 
 interface CounterDefinition {
   key: CounterKey;
@@ -17,24 +17,24 @@ interface CounterDefinition {
 
 const counterDefinitions: CounterDefinition[] = [
   {
-    key: 'translationRequests',
-    name: 'translation.requests.total',
-    description: 'Total translation requests',
+    key: "translationRequests",
+    name: "translation.requests.total",
+    description: "Total translation requests",
   },
   {
-    key: 'jobsEnqueued',
-    name: 'translation.jobs.enqueued.total',
-    description: 'Total translation jobs enqueued',
+    key: "jobsEnqueued",
+    name: "translation.jobs.enqueued.total",
+    description: "Total translation jobs enqueued",
   },
   {
-    key: 'validationErrors',
-    name: 'translation.validation.errors.total',
-    description: 'Translation validation errors',
+    key: "validationErrors",
+    name: "translation.validation.errors.total",
+    description: "Translation validation errors",
   },
   {
-    key: 'serverErrors',
-    name: 'translation.server.errors.total',
-    description: 'Translation API 5xx server errors',
+    key: "serverErrors",
+    name: "translation.server.errors.total",
+    description: "Translation API 5xx server errors",
   },
 ];
 
@@ -54,8 +54,8 @@ export const validationErrorsCounter = counters.validationErrors;
 export const serverErrorsCounter = counters.serverErrors;
 
 export const requestDuration = meter.createHistogram(
-  'translation.request.duration',
-  { description: 'Translation request processing time', unit: 'ms' },
+  "translation.request.duration",
+  { description: "Translation request processing time", unit: "ms" },
 );
 
 export const recordValidationError = (errorType: string): void => {

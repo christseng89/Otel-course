@@ -1,12 +1,11 @@
 import {
-  Attributes,
-  Span,
+  getTracer,
   SpanStatusCode,
-  trace,
-} from '@opentelemetry/api';
+} from "./otel-api.js";
+import type { Attributes, Span } from "./otel-api.js";
 
 export { SpanStatusCode };
-export const tracer = trace.getTracer('translation-frontend', '1.0.0');
+export const tracer = getTracer("translation-frontend", "1.0.0");
 
 export const setSpanAttributes = (
   span: Span,
