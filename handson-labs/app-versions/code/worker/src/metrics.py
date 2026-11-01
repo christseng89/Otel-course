@@ -1,8 +1,8 @@
 """Custom business metrics for the translation worker."""
 
-from opentelemetry import metrics
+from .otel_api import get_meter
 
-meter = metrics.get_meter(__name__)
+meter = get_meter(__name__)
 
 # Total jobs processed — dimensions: language, status (completed / error)
 jobs_total = meter.create_counter(

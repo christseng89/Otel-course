@@ -3,12 +3,10 @@ import argostranslate.translate
 import logging
 
 # Custom Traces
-from opentelemetry import trace
-from opentelemetry.trace import StatusCode
+from .otel_tracing import set_span_success, tracer
 
 logger = logging.getLogger(__name__)
 # Custom Traces
-tracer = trace.get_tracer(__name__)
 
 class Translator:
     """Local translation service using Argos Translate."""
@@ -95,7 +93,7 @@ class Translator:
 
                 # Custom Spans
                 span.set_attribute("translation.output_length", len(translated_text))
-                span.set_status(trace.Status(StatusCode.OK))
+                set_span_success(span)
 
                 logger.info(
                     "Translation completed",

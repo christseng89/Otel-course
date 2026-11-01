@@ -1,7 +1,3 @@
-# Context Propagation
-from opentelemetry import trace, propagate
-from opentelemetry.trace import SpanKind, Status, StatusCode
-
 import signal
 import sys
 import logging
@@ -14,7 +10,13 @@ from .queue import QueueConsumer
 from .translator import Translator
 from .logger import setup_logging
 
-from .instrumentation import setup_instrumentation, shutdown_instrumentation
+from .otel_sdk import start_open_telemetry, shutdown_open_telemetry
+from .otel_api import (
+    SpanKind,
+    extract_context,
+    inject_active_context,
+)
+from .otel_tracing import set_span_attributes, set_span_error, set_span_success, tracer
 
 # Custom Metrics
 from .metrics import jobs_total, translation_duration, active_jobs
@@ -23,9 +25,6 @@ from .metrics import jobs_total, translation_duration, active_jobs
 setup_logging()
 
 logger = logging.getLogger(__name__)
-
-# Context Propagation # Add this line
-tracer = trace.get_tracer(__name__)
 
 # Global shutdown flag
 shutdown_flag = False
@@ -80,7 +79,7 @@ def publish_result_with_context(
 ) -> None:
     """Inject the current trace context and publish a translation result."""
     trace_context: dict[str, str] = {}
-    propagate.inject(trace_context)
+    inject_active_context(trace_context)
     result["_traceContext"] = trace_context
     queue_consumer.publish_result(result)
 
@@ -94,7 +93,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_shutdown)
 
     # Change here Initialise OpenTelemetry before anything else
-    setup_instrumentation()
+    start_open_telemetry()
 
     # Load configuration
     config = Config.from_env()
@@ -156,7 +155,7 @@ def main() -> None:
                 # Extract the W3C trace context injected by the frontend.
                 # Missing or malformed context produces a background context,
                 # so the worker still processes the job as a new root trace.
-                remote_ctx = propagate.extract(job.get("_traceContext") or {})
+                remote_ctx = extract_context(job.get("_traceContext") or {})
 
                 with tracer.start_as_current_span(
                     f"process_translation_job - {target_lang}",
@@ -183,8 +182,7 @@ def main() -> None:
                                     "error": error_msg,
                                 },
                             )
-                            # Context Propagation
-                            span.set_status(Status(StatusCode.ERROR, error_msg))
+                            set_span_error(span, error_msg)
                             # Custom Metrics
                             duration_ms = int((time.time() - start_time) * 1000)
                             record_translation_duration(
@@ -234,12 +232,14 @@ def main() -> None:
                             )
                             add_job_total(target_lang, "completed")
                             # Context Propagation
-                            span.set_attributes(
+                            set_span_attributes(
+                                span,
                                 {
                                     "translation.duration_ms": duration_ms,
                                     "trace.id": f"{span.get_span_context().trace_id:032x}",
-                                }
+                                },
                             )
+                            set_span_success(span)
 
                             result = {
                                 "jobId": job_id,
@@ -272,9 +272,7 @@ def main() -> None:
                                 "error": error_msg,
                             },
                         )
-                        # Context Propagation
-                        span.record_exception(e)
-                        span.set_status(Status(StatusCode.ERROR, error_msg))
+                        set_span_error(span, e)
                         # Custom Metrics
                         record_translation_duration(duration_ms, target_lang, "error")
                         add_job_total(target_lang, "error")
@@ -325,7 +323,7 @@ def main() -> None:
                 )
 
         logger.info("Worker stopped")
-        shutdown_instrumentation()
+        shutdown_open_telemetry()
 
 
 if __name__ == "__main__":
