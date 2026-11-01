@@ -11,12 +11,13 @@ import { createTranslationRouter } from "./routes/translation.js";
 import type { TranslationResult } from "./types.js";
 import { logger } from "./logger.js";
 
+import { extractContext } from "./otel-api.js";
 import {
   SpanKind,
   SpanStatusCode,
-  extractContext,
-} from "./otel-api.js";
-import { tracer, setSpanError } from "./tracers.js";
+  setSpanError,
+  tracer,
+} from "./otel-tracing.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

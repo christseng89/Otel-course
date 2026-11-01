@@ -12,7 +12,6 @@ import type {
   TranslationSession,
 } from "../types.js";
 
-// Refactoring metrics.js, tracers.js and validation.ts
 import {
   recordJobEnqueued,
   recordRequestDuration,
@@ -26,7 +25,7 @@ import {
   setSpanAttributes,
   setSpanSuccess,
   tracer,
-} from "../tracers.js";
+} from "../otel-tracing.js";
 import { validateTranslationRequest } from "../validation.js";
 
 import { logger } from "../logger.js";
