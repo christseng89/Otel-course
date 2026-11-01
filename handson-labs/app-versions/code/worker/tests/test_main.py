@@ -1,14 +1,20 @@
-import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from src.main import main
-import time
 
 
 @patch("src.main.Translator")
 @patch("src.main.QueueConsumer")
 @patch("src.main.Config")
+@patch("src.main.time.sleep")
+@patch("src.main.setup_instrumentation")
+@patch("src.main.shutdown_instrumentation")
 def test_main_processes_job_successfully(
-    mock_config_class, mock_queue_class, mock_translator_class
+    mock_shutdown_instrumentation,
+    mock_setup_instrumentation,
+    mock_sleep,
+    mock_config_class,
+    mock_queue_class,
+    mock_translator_class,
 ):
     """Test main loop processes a job successfully."""
     # Setup config
@@ -61,8 +67,16 @@ def test_main_processes_job_successfully(
 @patch("src.main.Translator")
 @patch("src.main.QueueConsumer")
 @patch("src.main.Config")
+@patch("src.main.time.sleep")
+@patch("src.main.setup_instrumentation")
+@patch("src.main.shutdown_instrumentation")
 def test_main_handles_translation_error(
-    mock_config_class, mock_queue_class, mock_translator_class
+    mock_shutdown_instrumentation,
+    mock_setup_instrumentation,
+    mock_sleep,
+    mock_config_class,
+    mock_queue_class,
+    mock_translator_class,
 ):
     """Test main loop handles translation errors."""
     # Setup config
@@ -110,8 +124,16 @@ def test_main_handles_translation_error(
 @patch("src.main.Translator")
 @patch("src.main.QueueConsumer")
 @patch("src.main.Config")
+@patch("src.main.time.sleep")
+@patch("src.main.setup_instrumentation")
+@patch("src.main.shutdown_instrumentation")
 def test_main_handles_unsupported_language(
-    mock_config_class, mock_queue_class, mock_translator_class
+    mock_shutdown_instrumentation,
+    mock_setup_instrumentation,
+    mock_sleep,
+    mock_config_class,
+    mock_queue_class,
+    mock_translator_class,
 ):
     """Test main loop handles unsupported language."""
     # Setup config
@@ -158,8 +180,16 @@ def test_main_handles_unsupported_language(
 @patch("src.main.Translator")
 @patch("src.main.QueueConsumer")
 @patch("src.main.Config")
+@patch("src.main.time.sleep")
+@patch("src.main.setup_instrumentation")
+@patch("src.main.shutdown_instrumentation")
 def test_main_disconnects_on_shutdown(
-    mock_config_class, mock_queue_class, mock_translator_class
+    mock_shutdown_instrumentation,
+    mock_setup_instrumentation,
+    mock_sleep,
+    mock_config_class,
+    mock_queue_class,
+    mock_translator_class,
 ):
     """Test main loop disconnects properly on shutdown."""
     # Setup config

@@ -9,28 +9,18 @@ import time
 import random
 from datetime import datetime, timezone
 from typing import Any, Optional
-from pythonjsonlogger import json
 from .config import Config
 from .queue import QueueConsumer
 from .translator import Translator
+from .logger import setup_logging
 
 from .instrumentation import setup_instrumentation, shutdown_instrumentation
 
 # Custom Metrics
 from .metrics import jobs_total, translation_duration, active_jobs
 
-# Configure logging
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(
-    json.JsonFormatter(
-        "%(asctime)s %(levelname)s %(name)s %(message)s",
-        rename_fields={"asctime": "timestamp", "levelname": "level"},
-    )
-)
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[console_handler],
-)
+# Configure structured logging before creating module loggers.
+setup_logging()
 
 logger = logging.getLogger(__name__)
 

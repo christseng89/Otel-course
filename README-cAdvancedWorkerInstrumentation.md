@@ -571,10 +571,8 @@ pip install -r requirements.txt
 Restart the worker (if running via Docker Compose):
 
 ```bash
-cd ../../..
-cd compose
+cd ../../../compose
 docker compose -f compose.dev.yaml up --build worker -d
-docker compose -f compose.dev.yaml logs worker
 
 docker compose -f compose.dev.yaml logs worker --tail=20
 docker compose -f compose.dev.yaml logs -f worker | grep -E 'src\.main|src\.queue|src\.translator'
@@ -619,4 +617,11 @@ Try a field filter that would have been impossible before:
 {service_name="translation-worker"} | json | target_language = "es"
 ```
 
+## 5 Upgrade python-json-logger
+
+```prompt
+The latest available version for python-json-logger is 4.2.0. Changelog under https://nhairs.github.io/python-json-logger/latest/changelog/
+
+Make sure you implement the correct API and function calls for version 4.2.0. Other than that, the plan looks good and you may proceed.
+```
 ---
