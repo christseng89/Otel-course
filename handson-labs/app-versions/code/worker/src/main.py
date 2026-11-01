@@ -9,6 +9,7 @@ import time
 import random
 from datetime import datetime, timezone
 from typing import Any, Optional
+from pythonjsonlogger import json
 from .config import Config
 from .queue import QueueConsumer
 from .translator import Translator
@@ -19,10 +20,16 @@ from .instrumentation import setup_instrumentation, shutdown_instrumentation
 from .metrics import jobs_total, translation_duration, active_jobs
 
 # Configure logging
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(
+    json.JsonFormatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s",
+        rename_fields={"asctime": "timestamp", "levelname": "level"},
+    )
+)
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
+    handlers=[console_handler],
 )
 
 logger = logging.getLogger(__name__)
@@ -37,7 +44,7 @@ shutdown_flag = False
 def handle_shutdown(signum: int, frame) -> None:
     """Handle shutdown signals gracefully."""
     global shutdown_flag
-    logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+    logger.info("Graceful shutdown requested", extra={"signal": signum})
     shutdown_flag = True
 
 
@@ -106,8 +113,14 @@ def main() -> None:
     logging.getLogger().setLevel(config.log_level)
 
     logger.info("Starting translation worker")
-    logger.info(f"Redis: {config.redis_host}:{config.redis_port}")
-    logger.info(f"Supported languages: {', '.join(config.supported_languages)}")
+    logger.info(
+        "Redis configuration loaded",
+        extra={"redis_host": config.redis_host, "redis_port": config.redis_port},
+    )
+    logger.info(
+        "Supported languages loaded",
+        extra={"supported_languages": config.supported_languages},
+    )
 
     # Initialize components
     queue_consumer: Optional[QueueConsumer] = None
@@ -146,7 +159,7 @@ def main() -> None:
                 target_lang = job.get("targetLanguage")
 
                 if not all([job_id, session_id, text, target_lang]):
-                    logger.error(f"Invalid job data: {job}")
+                    logger.error("Invalid job data", extra={"job": job})
                     continue
 
                 # Context Propagation
@@ -173,7 +186,13 @@ def main() -> None:
                         # Validate target language
                         if target_lang not in config.supported_languages:
                             error_msg = f"Unsupported target language: {target_lang}"
-                            logger.error(error_msg)
+                            logger.error(
+                                "Unsupported target language",
+                                extra={
+                                    "target_language": target_lang,
+                                    "error": error_msg,
+                                },
+                            )
                             # Context Propagation
                             span.set_status(Status(StatusCode.ERROR, error_msg))
                             # Custom Metrics
@@ -199,12 +218,20 @@ def main() -> None:
                             # Ensure text is not None
                             assert text is not None
                             logger.info(
-                                f"Processing job {job_id}: {source_lang} -> {target_lang}"
+                                "Processing translation job",
+                                extra={
+                                    "job_id": job_id,
+                                    "source_language": source_lang,
+                                    "target_language": target_lang,
+                                },
                             )
 
                             # Simulate realistic API latency (0.5-2 seconds)
                             delay = random.uniform(0.5, 2.0)
-                            logger.debug(f"Simulating {delay:.2f}s translation latency")
+                            logger.debug(
+                                "Simulating translation latency",
+                                extra={"delay_seconds": round(delay, 2)},
+                            )
                             time.sleep(delay)
 
                             translated_text = translator.translate(
@@ -236,14 +263,24 @@ def main() -> None:
                             }
 
                             logger.info(
-                                f"Job {job_id} completed successfully in {duration_ms}ms"
+                                "Translation job completed",
+                                extra={
+                                    "job_id": job_id,
+                                    "target_language": target_lang,
+                                    "duration_ms": duration_ms,
+                                },
                             )
 
                     except Exception as e:
                         duration_ms = int((time.time() - start_time) * 1000)
                         error_msg = str(e)
                         logger.error(
-                            f"Translation failed for job {job_id}: {error_msg}"
+                            "Translation job failed",
+                            extra={
+                                "job_id": job_id,
+                                "target_language": target_lang,
+                                "error": error_msg,
+                            },
                         )
                         # Context Propagation
                         span.record_exception(e)
@@ -268,17 +305,21 @@ def main() -> None:
                     publish_result_with_context(queue_consumer, result)
 
             except KeyboardInterrupt:
-                logger.info("Received keyboard interrupt")
+                logger.info("Keyboard interrupt received")
                 break
             except Exception as e:
-                logger.error(f"Error processing job: {e}", exc_info=True)
+                logger.error(
+                    "Error processing job",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
                 # Continue processing next job
                 time.sleep(1)
 
         logger.info("Worker shutting down...")
 
     except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
+        logger.error("Fatal worker error", extra={"error": str(e)}, exc_info=True)
         sys.exit(1)
 
     finally:
@@ -287,7 +328,11 @@ def main() -> None:
             try:
                 queue_consumer.disconnect()
             except Exception as e:
-                logger.error(f"Error disconnecting from Redis: {e}")
+                logger.error(
+                    "Error disconnecting from Redis",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
 
         logger.info("Worker stopped")
         shutdown_instrumentation()

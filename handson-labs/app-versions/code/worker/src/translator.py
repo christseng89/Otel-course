@@ -21,14 +21,27 @@ class Translator:
 
             # Get installed packages
             installed_packages = argostranslate.package.get_installed_packages()
-            logger.info(f"Installed translation packages: {len(installed_packages)}")
+            logger.info(
+                "Installed translation packages loaded",
+                extra={"package_count": len(installed_packages)},
+            )
 
             # Log available language pairs
             for pkg in installed_packages:
-                logger.info(f"  {pkg.from_code} -> {pkg.to_code}")
+                logger.info(
+                    "Translation package available",
+                    extra={
+                        "source_language": pkg.from_code,
+                        "target_language": pkg.to_code,
+                    },
+                )
 
         except Exception as e:
-            logger.error(f"Failed to initialize translator: {e}")
+            logger.error(
+                "Failed to initialize translator",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
             raise
 
     def translate(self, text: str, source: str, target: str) -> str:
@@ -67,7 +80,14 @@ class Translator:
 
                 if translation is None:
                     error_msg = f"Translation model not available for {source} -> {target}"
-                    logger.error(error_msg)
+                    logger.error(
+                        "Translation model unavailable",
+                        extra={
+                            "source_language": source,
+                            "target_language": target,
+                            "error": error_msg,
+                        },
+                    )
                     raise ValueError(error_msg)
 
                 # Perform translation
@@ -78,8 +98,13 @@ class Translator:
                 span.set_status(trace.Status(StatusCode.OK))
 
                 logger.info(
-                    f"Translated text ({source} -> {target}): "
-                    f"{text[:50]}... -> {translated_text[:50]}..."
+                    "Translation completed",
+                    extra={
+                        "source_language": source,
+                        "target_language": target,
+                        "text_length": len(text),
+                        "output_length": len(translated_text),
+                    },
                 )
 
                 return translated_text
@@ -88,5 +113,13 @@ class Translator:
                 raise
             except Exception as e:
                 error_msg = f"Translation failed ({source} -> {target}): {str(e)}"
-                logger.error(error_msg)
+                logger.error(
+                    "Translation failed",
+                    extra={
+                        "source_language": source,
+                        "target_language": target,
+                        "error": error_msg,
+                    },
+                    exc_info=True,
+                )
                 raise RuntimeError(error_msg) from e

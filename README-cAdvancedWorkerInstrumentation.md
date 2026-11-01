@@ -517,3 +517,106 @@ After this lab, every runtime value in both services is configurable via env var
 | `LOG_LEVEL`                   | `info`                       | Python log level                  |
 
 ---
+
+# Structured Logging for the Worker
+
+- Refer to `lab-refactoring-structured-logs.md`
+
+## 1. Study the current logging in the worker
+
+Read through `app-versions/code/worker/src/main.py` and `app-versions/code/worker/src/queue.py`. Note:
+
+- How `logging.basicConfig()` is configured
+- Every `logger.info()`, `logger.error()`, and `logger.debug()` call that uses f-string interpolation
+- What contextual data (job IDs, language codes, durations, host/port) is currently interpolated into message strings
+
+## 2. Ask your AI assistant to perform the refactoring
+
+Open your AI assistant and provide this prompt:
+
+```prompt
+I want to refactor the logs from the worker to also follow structured logging, similar to the frontend. Research the codebase under `handson-labs/app-versions/code` and provide a plan for the implementation. Pause and ask for my feedback on the plan before proceeding with the implementation.
+```
+
+**Review the AI's plan before approving it.** Check:
+
+- Does it plan to add a JSON formatter library to the `pyproject.toml` file?
+- Does it plan to replace `basicConfig` with a structured JSON handler?
+- Does it identify the f-string log calls in both `main.py` and `queue.py`?
+- Does the plan separate event descriptions from contextual data (no variable interpolation in message strings)?
+
+Once you're happy with the plan, tell the AI to proceed with the implementation.
+
+## 3. Apply the changes and verify
+
+Once satisfied with the AI's output, apply the changes.
+
+Reinstall dependencies in the worker. Depending on your setup:
+
+**With `uv` (recommended):**
+
+```bash
+cd app-versions/code/worker
+uv sync
+```
+
+**With `pip` and a virtual environment:**
+
+```bash
+cd app-versions/code/worker
+# source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+pip install -r requirements.txt
+```
+
+Restart the worker (if running via Docker Compose):
+
+```bash
+cd ../../..
+cd compose
+docker compose -f compose.dev.yaml up --build worker -d
+docker compose -f compose.dev.yaml logs worker
+
+docker compose -f compose.dev.yaml logs worker --tail=20
+docker compose -f compose.dev.yaml logs -f worker | grep -E 'src\.main|src\.queue|src\.translator'
+
+cd ..
+bash test_traffic.sh
+
+```
+
+You should now see JSON lines in the worker logs:
+
+```json
+{
+  "timestamp": "2024-01-15 10:23:45,123",
+  "level": "INFO",
+  "name": "worker.main",
+  "message": "Worker ready, waiting for jobs..."
+}
+```
+
+## 4. Send a translation request and check Loki
+
+Generate a request:
+
+```bash
+curl -X POST http://localhost:3000/api/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Structured logging", "targetLanguages": ["es"]}'
+```
+
+In Grafana → Explore → Loki, run:
+
+```logql
+{service_name="translation-worker"} | json
+```
+
+Expand a log entry. You should now see `job_id`, `target_language`, and `duration_ms` as separate fields rather than embedded in a message string.
+
+Try a field filter that would have been impossible before:
+
+```logql
+{service_name="translation-worker"} | json | target_language = "es"
+```
+
+---

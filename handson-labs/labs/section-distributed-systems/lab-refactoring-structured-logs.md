@@ -48,7 +48,7 @@ The difference matters for observability. With plain text, `job_id` is buried in
 Read through `app-versions/code/worker/src/main.py` and `app-versions/code/worker/src/queue.py`. Note:
 
 - How `logging.basicConfig()` is configured
-- Every `logger.info()`, `logger.error()`, and `logger.debug()` call that uses f-string interpolation
+- Every `logger.info()`, `logger.error()`, and `logger.debug()` call that uses f-string interpolation in `main.py`, `queue.py`, and `translator.py`
 - What contextual data (job IDs, language codes, durations, host/port) is currently interpolated into message strings
 
 **2. Ask your AI assistant to perform the refactoring**
@@ -57,7 +57,7 @@ Open your AI assistant and provide this prompt:
 
 ---
 
-_I want to refactor the logs from the worker to also follow structured logging, similar to the frontend. Research the codebase under `app-versions/code` and provide a plan for the implementation. Pause and ask for my feedback on the plan before proceeding with the implementation._
+I want to refactor the logs from the worker to also follow structured logging, similar to the frontend. Research the codebase under `app-versions/code` and provide a plan for the implementation. Pause and ask for my feedback on the plan before proceeding with the implementation.
 
 ---
 
@@ -80,7 +80,7 @@ Reinstall dependencies in the worker. Depending on your setup:
 
 ```bash
 cd app-versions/code/worker
-uv sync
+uv sync --extra dev
 ```
 
 **With `pip` and a virtual environment:**
@@ -88,14 +88,14 @@ uv sync
 ```bash
 cd app-versions/code/worker
 source .venv/bin/activate   # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
+pip install ".[dev]"
 ```
 
 Restart the worker (if running via Docker Compose):
 
 ```bash
 cd compose
-docker compose -f compose.dev.yaml up --build worker
+docker compose -f compose.dev.yaml up --build -d --force-recreate worker
 docker compose -f compose.dev.yaml logs worker --tail=20
 ```
 
@@ -126,7 +126,7 @@ In Grafana → Explore → Loki, run:
 {service_name="translation-worker"} | json
 ```
 
-Expand a log entry. You should now see `job_id`, `target_language`, and `duration_ms` as separate fields rather than embedded in a message string.
+Expand a log entry. You should now see `job_id`, `target_language`, `status`, and `duration_ms` as separate fields rather than embedded in a message string. The worker's existing OpenTelemetry logging handler continues exporting these records over OTLP and adds trace/span correlation when a log is emitted inside an active span.
 
 Try a field filter that would have been impossible before:
 

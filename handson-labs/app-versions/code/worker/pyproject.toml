@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "redis==7.2.0",
     "argostranslate==1.11.0",
+    "python-json-logger==3.3.0",
     # Change here
     "opentelemetry-api==1.40.0",
     "opentelemetry-sdk==1.40.0",

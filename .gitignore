@@ -366,3 +366,4 @@ kind.exe
 *.ps1
 TEST.md
 .deepeval/
+opentelemetry-course/

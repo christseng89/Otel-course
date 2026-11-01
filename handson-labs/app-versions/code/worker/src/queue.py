@@ -42,9 +42,20 @@ class QueueConsumer:
             self.client.ping()
             self.publisher.ping()
 
-            logger.info(f"Connected to Redis at {self.host}:{self.port}")
+            logger.info(
+                "Connected to Redis",
+                extra={"redis_host": self.host, "redis_port": self.port},
+            )
         except redis.RedisError as e:
-            logger.error(f"Failed to connect to Redis: {e}")
+            logger.error(
+                "Failed to connect to Redis",
+                extra={
+                    "redis_host": self.host,
+                    "redis_port": self.port,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
             raise
 
     def wait_for_job(self, timeout: int = 0) -> Optional[dict[str, Any]]:
@@ -70,15 +81,27 @@ class QueueConsumer:
             job = json.loads(job_json)
 
             logger.info(
-                f"Received job {job.get('jobId')} for language {job.get('targetLanguage')}"
+                "Received translation job",
+                extra={
+                    "job_id": job.get("jobId"),
+                    "target_language": job.get("targetLanguage"),
+                },
             )
             return job
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse job JSON: {e}")
+            logger.error(
+                "Failed to parse job JSON",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
             return None
         except redis.RedisError as e:
-            logger.error(f"Redis error while waiting for job: {e}")
+            logger.error(
+                "Redis error while waiting for job",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
             raise
 
     def publish_result(self, result: dict[str, Any]) -> None:
@@ -96,11 +119,18 @@ class QueueConsumer:
             self.publisher.publish(self.result_channel, result_json)
 
             logger.info(
-                f"Published result for job {result.get('jobId')} "
-                f"(status: {result.get('status')})"
+                "Published translation result",
+                extra={
+                    "job_id": result.get("jobId"),
+                    "status": result.get("status"),
+                },
             )
         except (json.JSONDecodeError, redis.RedisError) as e:
-            logger.error(f"Failed to publish result: {e}")
+            logger.error(
+                "Failed to publish result",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
             raise
 
     def disconnect(self) -> None:
