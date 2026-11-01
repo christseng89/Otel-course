@@ -38,7 +38,7 @@ def setup_instrumentation() -> None:
 
     metric_reader = PeriodicExportingMetricReader(
         exporter=OTLPMetricExporter(),
-        export_interval_millis=int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL", "10000")),
+        export_interval_millis=int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL", "60000")),
     )
 
     _meter_provider = MeterProvider(

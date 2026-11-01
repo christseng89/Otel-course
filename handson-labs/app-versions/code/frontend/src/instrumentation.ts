@@ -23,7 +23,7 @@ const sdk = new NodeSDK({
   metricReader: new PeriodicExportingMetricReader({
     exporter: new OTLPMetricExporter(),
     exportIntervalMillis: parseInt(
-      process.env.OTEL_METRIC_EXPORT_INTERVAL || '10000',
+      process.env.OTEL_METRIC_EXPORT_INTERVAL || '60000',
       10,
     ),
   }),

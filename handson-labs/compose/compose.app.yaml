@@ -58,8 +58,13 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Environment Config
+      - QUEUE_KEY=translation:queue
+      - RESULT_CHANNEL=translation:results
       - LOG_LEVEL=info
       - SOURCE_LANGUAGE=en
+      # Environment Config      
+      - SUPPORTED_LANGUAGES=es,fr,de
       # Refactoring
       - OTEL_SERVICE_NAME=translation-worker
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318

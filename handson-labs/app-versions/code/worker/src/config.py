@@ -17,12 +17,17 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         """Create configuration from environment variables."""
+        # Environment Config        
+        supported_languages_raw = os.getenv("SUPPORTED_LANGUAGES", "es,fr,de")
+        supported_languages = [l.strip() for l in supported_languages_raw.split(",") if l.strip()]
         return cls(
             redis_host=os.getenv("REDIS_HOST", "localhost"),
             redis_port=int(os.getenv("REDIS_PORT", "6379")),
-            queue_key="translation:queue",
-            result_channel="translation:results",
+            # Environment Config
+            queue_key=os.getenv("QUEUE_KEY", "translation:queue"),
+            result_channel=os.getenv("RESULT_CHANNEL", "translation:results"),
             source_language=os.getenv("SOURCE_LANGUAGE", "en"),
-            supported_languages=["es", "fr", "de"],
+            # Environment Config            
+            supported_languages=supported_languages,
             log_level=os.getenv("LOG_LEVEL", "info").upper(),
         )
