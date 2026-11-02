@@ -16,6 +16,10 @@ COPY tsconfig.json ./
 # Public assets copied for serving
 COPY src/public ./src/public
 
+# Run the development server as the non-root node user.
+RUN chown -R node:node /app
+USER node
+
 # Expose port
 EXPOSE 3000
 

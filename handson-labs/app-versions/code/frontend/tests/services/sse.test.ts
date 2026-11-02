@@ -39,6 +39,19 @@ describe('SSEManager', () => {
     expect(mockRes2.write).toHaveBeenCalledWith(expectedMessage);
   });
 
+  it('should remove a connection when writing an event fails', () => {
+    const mockRes = createMockResponse();
+    mockRes.write = jest.fn().mockImplementationOnce(() => undefined).mockImplementation(() => {
+      throw new Error('client disconnected');
+    }) as any;
+
+    sseManager.addConnection('session-1', mockRes);
+    sseManager.sendEvent('session-1', 'test_event', { data: 'test' });
+
+    expect(mockRes.end).toHaveBeenCalled();
+    expect(sseManager.getConnectionCount('session-1')).toBe(0);
+  });
+
   it('should not send event to non-existent session', () => {
     const mockRes = createMockResponse();
 

@@ -118,8 +118,30 @@ describe('Translation Routes', () => {
         });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('Unsupported');
+      expect(response.body.error).toBe('Unsupported language: xx');
       expect(response.body).toHaveProperty('supportedLanguages');
+    });
+
+    it('should return 500 when enqueueing fails', async () => {
+      mockQueueService.enqueueJob.mockRejectedValue(new Error('queue down'));
+
+      const response = await request(app)
+        .post('/api/translate')
+        .send({ text: 'Hello', targetLanguages: ['es'] });
+
+      expect(response.status).toBe(500);
+      expect(response.body.details).toBe('queue down');
+    });
+
+    it('should return 500 when saving the session fails', async () => {
+      mockQueueService.saveSession.mockRejectedValue(new Error('save failed'));
+
+      const response = await request(app)
+        .post('/api/translate')
+        .send({ text: 'Hello', targetLanguages: ['es'] });
+
+      expect(response.status).toBe(500);
+      expect(response.body.details).toBe('save failed');
     });
   });
 
@@ -153,6 +175,15 @@ describe('Translation Routes', () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error).toContain('not found');
+    });
+
+    it('should return 500 when session lookup fails', async () => {
+      mockQueueService.getSession.mockRejectedValue(new Error('redis down'));
+
+      const response = await request(app).get('/api/translate/session-123');
+
+      expect(response.status).toBe(500);
+      expect(response.body.details).toBe('redis down');
     });
   });
 
@@ -207,6 +238,17 @@ describe('Translation Routes', () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error).toContain('not found');
+    });
+
+    it('should return 500 when establishing SSE fails', async () => {
+      mockQueueService.getSession.mockRejectedValue(new Error('redis down'));
+
+      const response = await request(app).get(
+        '/api/translate/session-123/events',
+      );
+
+      expect(response.status).toBe(500);
+      expect(response.body.details).toBe('redis down');
     });
   });
 });

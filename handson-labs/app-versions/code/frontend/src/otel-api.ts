@@ -2,21 +2,16 @@ import {
   context,
   metrics,
   propagation,
-  SpanKind,
-  SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
 import type {
-  Attributes,
   Context,
-  Counter,
   Meter,
-  Span,
   Tracer,
 } from "@opentelemetry/api";
 
-export type { Attributes, Context, Counter, Meter, Span, Tracer };
-export { SpanKind, SpanStatusCode };
+export type { Attributes, Context, Counter, Meter, Span, Tracer } from "@opentelemetry/api";
+export { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 
 export const getTracer = (name: string, version?: string): Tracer =>
   trace.getTracer(name, version);

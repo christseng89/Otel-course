@@ -2,6 +2,7 @@
 import { jest } from '@jest/globals';
 
 export class Redis {
+  static instances: Redis[] = [];
   private commands: Record<string, any> = {};
   private subscriptions: Map<
     string,
@@ -9,6 +10,7 @@ export class Redis {
   > = new Map();
 
   constructor(config?: any) {
+    Redis.instances.push(this);
     this.commands = {
       ping: (jest.fn() as any).mockResolvedValue('PONG'),
       lpush: (jest.fn() as any).mockResolvedValue(1),

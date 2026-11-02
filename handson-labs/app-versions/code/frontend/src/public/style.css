@@ -159,8 +159,8 @@ textarea:focus {
 .submit-btn {
   width: 100%;
   padding: 1rem;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  color: white;
+  background: linear-gradient(135deg, #4f46e5 0%, #6d28d9 100%);
+  color: #ffffff;
   border: none;
   border-radius: 8px;
   font-size: 1.1rem;
@@ -185,10 +185,10 @@ textarea:focus {
 .error-message {
   margin-top: 1rem;
   padding: 1rem;
-  background-color: rgba(239, 68, 68, 0.1);
+  background-color: #7f1d1d;
   border: 2px solid var(--error-color);
   border-radius: 8px;
-  color: #fca5a5;
+  color: #fee2e2;
 }
 
 /* Results Section */
@@ -419,23 +419,23 @@ textarea:focus {
 }
 
 .status-queued {
-  background-color: #6366f1;
+  background-color: #4338ca;
   color: #ffffff;
 }
 
 .status-processing {
   background-color: #f59e0b;
-  color: #ffffff;
+  color: #0f172a;
 }
 
 .status-completed {
   background-color: #10b981;
-  color: #ffffff;
+  color: #0f172a;
 }
 
 .status-error {
   background-color: #ef4444;
-  color: #ffffff;
+  color: #0f172a;
 }
 
 .result-content {

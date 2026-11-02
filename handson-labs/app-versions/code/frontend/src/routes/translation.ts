@@ -35,6 +35,68 @@ export interface TranslationRouterDeps {
   sseManager: SSEManager;
 }
 
+async function enqueueTranslationJobs(
+  queueService: QueueService,
+  targetLanguages: string[],
+  text: string,
+  sessionId: string,
+  jobs: Map<string, JobStatus>,
+  jobsList: TranslationJob[],
+): Promise<void> {
+  await tracer.startActiveSpan(
+    "enqueue_translation_jobs",
+    async (enqueueSpan) => {
+      try {
+        setSpanAttributes(enqueueSpan, {
+          "translation.jobs_count": targetLanguages.length,
+          "translation.languages": targetLanguages,
+        });
+
+        const enqueuePromises = targetLanguages.map(async (targetLanguage) => {
+          const jobId = uuidv4();
+          const job: TranslationJob = {
+            jobId,
+            sessionId,
+            text,
+            sourceLanguage: "en",
+            targetLanguage,
+            createdAt: new Date().toISOString(),
+          };
+
+          jobsList.push(job);
+          jobs.set(targetLanguage, { status: "queued" });
+
+          await queueService.enqueueJob(job);
+          logger.info(
+            `Translation job accepted for processing - ${targetLanguage}`,
+            {
+              job_id: jobId,
+              session_id: sessionId,
+              target_language: targetLanguage,
+              queue: "translation_queue",
+            },
+          );
+          recordJobEnqueued(targetLanguage);
+        });
+
+        await Promise.all(enqueuePromises);
+        setSpanSuccess(enqueueSpan);
+      } catch (error) {
+        logger.error("Error enqueueing translation jobs", {
+          sessionId,
+          targetLanguages,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        setSpanError(enqueueSpan, error);
+        throw error;
+      } finally {
+        enqueueSpan.end();
+      }
+    },
+  );
+}
+
 export function createTranslationRouter(deps: TranslationRouterDeps): Router {
   const router = Router();
   const { queueService, sseManager } = deps;
@@ -119,63 +181,13 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
           // Create and enqueue jobs
           const jobsList: TranslationJob[] = [];
 
-          await tracer.startActiveSpan(
-            "enqueue_translation_jobs",
-            async (enqueueSpan) => {
-              try {
-                // Create and enqueue jobs
-                setSpanAttributes(enqueueSpan, {
-                  "translation.jobs_count": targetLanguages.length,
-                  "translation.languages": targetLanguages,
-                });
-
-                const enqueuePromises = targetLanguages.map(
-                  (targetLanguage) => {
-                    const jobId = uuidv4();
-                    const job: TranslationJob = {
-                      jobId,
-                      sessionId,
-                      text,
-                      sourceLanguage: "en",
-                      targetLanguage,
-                      createdAt: new Date().toISOString(),
-                    };
-
-                    jobsList.push(job);
-                    jobs.set(targetLanguage, { status: "queued" });
-
-                    // Enqueue job and log each successfully enqueued job.
-                    return queueService.enqueueJob(job).then(() => {
-                      logger.info(
-                        `Translation job accepted for processing - ${targetLanguage}`,
-                        {
-                          job_id: jobId,
-                          session_id: sessionId,
-                          target_language: targetLanguage,
-                          queue: "translation_queue",
-                        },
-                      );
-                      recordJobEnqueued(targetLanguage);
-                    });
-                  },
-                );
-                await Promise.all(enqueuePromises);
-
-                // enqueueSpan OK
-                setSpanSuccess(enqueueSpan);
-              } catch (error) {
-                logger.error("Error enqueueing translation jobs", {
-                  sessionId,
-                  targetLanguages,
-                  error: error instanceof Error ? error.message : String(error),
-                  stack: error instanceof Error ? error.stack : undefined,
-                });
-                setSpanError(enqueueSpan, error);
-                throw error;
-              } finally {
-                enqueueSpan.end();
-              }
-            },
+          await enqueueTranslationJobs(
+            queueService,
+            targetLanguages,
+            text,
+            sessionId,
+            jobs,
+            jobsList,
           );
 
           // Save session
@@ -243,7 +255,7 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
   // GET /api/translate/:sessionId - Get session status
   router.get("/:sessionId", async (req: Request, res: Response) => {
     try {
-      const { sessionId } = req.params as unknown & { sessionId: string };
+      const { sessionId } = req.params as { sessionId: string };
 
       const session = await queueService.getSession(sessionId);
 
@@ -287,7 +299,7 @@ export function createTranslationRouter(deps: TranslationRouterDeps): Router {
   // GET /api/translate/:sessionId/events - SSE endpoint
   router.get("/:sessionId/events", async (req: Request, res: Response) => {
     try {
-      const { sessionId } = req.params as unknown & { sessionId: string };
+      const { sessionId } = req.params as { sessionId: string };
 
       // Verify session exists
       const session = await queueService.getSession(sessionId);

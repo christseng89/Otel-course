@@ -1,11 +1,10 @@
 import {
   getTracer,
-  SpanKind,
   SpanStatusCode,
 } from "./otel-api.js";
 import type { Attributes, Span, Tracer } from "./otel-api.js";
 
-export { SpanKind, SpanStatusCode };
+export { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 
 /** Creates the tracer used by the translation frontend service. */
 export const createTranslationTracer = (): Tracer =>

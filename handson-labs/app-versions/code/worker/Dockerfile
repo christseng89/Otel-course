@@ -3,6 +3,8 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
+ENV ARGOS_PACKAGES_DIR=/app/.local/share/argos-translate/packages
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
@@ -18,7 +20,7 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 
 # Install Python dependencies (argostranslate will use the CPU-only PyTorch we just installed)
 RUN pip install --no-cache-dir . && \
-    # Clean up unnecessary files to reduce image size
+    # Clean up unnecessary files to reduce image size \
     find /usr/local/lib/python3.12/site-packages -type d \( -name "tests" -o -name "test" \) -exec rm -rf {} + 2>/dev/null || true && \
     find /usr/local/lib/python3.12/site-packages -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
     find /usr/local/lib/python3.12/site-packages \( -name "*.pyc" -o -name "*.pyo" \) -delete 2>/dev/null || true
@@ -34,19 +36,28 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+ENV ARGOS_PACKAGES_DIR=/app/.local/share/argos-translate
+
+RUN groupadd --system app && useradd --system --gid app --home-dir /app app
+
 # Copy installed packages and models from builder
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=builder /root/.local/share/argos-translate /root/.local/share/argos-translate
+COPY --from=builder /app/.local/share/argos-translate /app/.local/share/argos-translate
 
 # Copy source code
 COPY src ./src
+
+RUN chown -R app:app /app
+USER app
+
+# Clean up any remaining cache files
+RUN find /usr/local/lib/python3.12/site-packages -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
 # Set Python path
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Clean up any remaining cache files
-RUN find /usr/local/lib/python3.12/site-packages -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+USER app
 
 # Run the worker
 CMD ["python", "-m", "src.main"]

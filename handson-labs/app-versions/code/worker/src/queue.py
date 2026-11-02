@@ -47,7 +47,7 @@ class QueueConsumer:
                 extra={"redis_host": self.host, "redis_port": self.port},
             )
         except redis.RedisError as e:
-            logger.error(
+            logger.exception(
                 "Failed to connect to Redis",
                 extra={
                     "redis_host": self.host,
@@ -90,14 +90,14 @@ class QueueConsumer:
             return job
 
         except json.JSONDecodeError as e:
-            logger.error(
+            logger.exception(
                 "Failed to parse job JSON",
                 extra={"error": str(e)},
                 exc_info=True,
             )
             return None
         except redis.RedisError as e:
-            logger.error(
+            logger.exception(
                 "Redis error while waiting for job",
                 extra={"error": str(e)},
                 exc_info=True,
@@ -126,7 +126,7 @@ class QueueConsumer:
                 },
             )
         except (json.JSONDecodeError, redis.RedisError) as e:
-            logger.error(
+            logger.exception(
                 "Failed to publish result",
                 extra={"error": str(e)},
                 exc_info=True,

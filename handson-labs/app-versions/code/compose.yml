@@ -40,6 +40,8 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - OTEL_SERVICE_NAME=translation-worker
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - LOG_LEVEL=info
       - SOURCE_LANGUAGE=en
     depends_on:

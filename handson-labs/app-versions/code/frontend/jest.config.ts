@@ -1,16 +1,19 @@
 import type { Config } from 'jest';
 
 const config: Config = {
-  preset: 'ts-jest',
+  preset: 'ts-jest/presets/default-esm',
   testEnvironment: 'node',
+  extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
-    '^(\.{1,2}/.*)\.js$': '$1',
+    '^([.]{1,2}/.*)[.]js$': '$1',
     '^uuid$': '<rootDir>/tests/__mocks__/uuid.ts',
+    '^ioredis$': '<rootDir>/tests/__mocks__/ioredis.ts',
   },
   transform: {
-    '^.+\.ts$': [
+    '^.+[.]ts$': [
       'ts-jest',
       {
+        useESM: true,
         diagnostics: {
           ignoreCodes: [151002],
         },
@@ -22,6 +25,7 @@ const config: Config = {
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
+  coveragePathIgnorePatterns: ['/src/index.ts$', '/src/instrumentation.ts$'],
   injectGlobals: true,
 };
 
