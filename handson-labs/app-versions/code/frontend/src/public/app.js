@@ -421,11 +421,11 @@ function connectToSSE(sessionId) {
   // Auto-update status to processing when connection is established
   // (slight delay to show queued state first)
   setTimeout(() => {
-    if (currentSession && currentSession.jobs) {
+    if (currentSession?.jobs) {
       for (const job of currentSession.jobs) {
         // Only update if still queued
         const card = document.getElementById(`result-${job.targetLanguage}`);
-        if (card && card.textContent.includes("Waiting in queue")) {
+        if (card?.textContent.includes("Waiting in queue")) {
           updateResultCard(job.targetLanguage, "processing");
         }
       }

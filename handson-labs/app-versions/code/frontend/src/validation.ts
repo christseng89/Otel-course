@@ -1,5 +1,7 @@
 import { SUPPORTED_LANGUAGES } from "./types.js";
 
+const SUPPORTED_LANGUAGE_SET = new Set<string>(SUPPORTED_LANGUAGES);
+
 export interface ValidationErrorBody {
   error: string;
   details?: string;
@@ -63,20 +65,26 @@ export function validateTranslationRequest(
   const unsupportedLanguages = targetLanguages.filter(
     (language) =>
       typeof language !== "string" ||
-      !SUPPORTED_LANGUAGES.some(
-        (supportedLanguage) => supportedLanguage === language,
-      ),
+      !SUPPORTED_LANGUAGE_SET.has(language),
   );
 
   if (unsupportedLanguages.length > 0) {
+    const unsupportedLanguageCodes = unsupportedLanguages.map(String).join(", ");
+    const unsupportedLanguageLabel =
+      unsupportedLanguages.length === 1
+        ? "Unsupported language"
+        : "Unsupported languages";
+    const unsupportedLanguageMessage =
+      unsupportedLanguageLabel + ": " + unsupportedLanguageCodes;
+
     return {
       statusCode: 400,
       body: {
-        error: `Unsupported language: ${unsupportedLanguages.join(", ")}`,
+        error: unsupportedLanguageMessage,
         supportedLanguages: [...SUPPORTED_LANGUAGES],
       },
       errorType: ValidationErrorType.INVALID_LANGUAGES,
-      spanMessage: "Unsupported language",
+      spanMessage: unsupportedLanguageMessage,
     };
   }
 

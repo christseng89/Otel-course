@@ -35,7 +35,7 @@ class Translator:
                 )
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "Failed to initialize translator",
                 extra={"error": str(e)},
                 exc_info=True,
@@ -111,7 +111,7 @@ class Translator:
                 raise
             except Exception as e:
                 error_msg = f"Translation failed ({source} -> {target}): {str(e)}"
-                logger.error(
+                logger.exception(
                     "Translation failed",
                     extra={
                         "source_language": source,

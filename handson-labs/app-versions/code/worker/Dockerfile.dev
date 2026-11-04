@@ -3,6 +3,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+ENV ARGOS_PACKAGES_DIR=/app/.local/share/argos-translate/packages
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
@@ -12,18 +14,21 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements
 COPY pyproject.toml ./
 
-# Install PyTorch CPU-only version
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-
-# Install Python dependencies + dev tools
-RUN pip install --no-cache-dir . && \
-    pip install --no-cache-dir watchdog
-
-# Download Argos Translate models (will be cached in volume)
+# Copy model downloader before installing dependencies so model setup can remain one layer.
 COPY download_models.py ./
-RUN python download_models.py
+
+# Install PyTorch, application dependencies, dev tools, and models.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir . && \
+    pip install --no-cache-dir watchdog && \
+    python download_models.py && \
+    groupadd --system app && \
+    useradd --system --gid app --home-dir /app app && \
+    chown -R app:app /app
 
 # Source code will be mounted as volume
+
+USER app
 
 # Set Python path
 ENV PYTHONPATH=/app

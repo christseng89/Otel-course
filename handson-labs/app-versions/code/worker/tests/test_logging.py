@@ -56,3 +56,10 @@ def test_setup_logging_quiets_translation_library_info_logs():
     assert logging.getLogger("argostranslate").level == logging.WARNING
     assert logging.getLogger("argostranslate.utils").level == logging.WARNING
     assert logging.getLogger("ctranslate2").level == logging.WARNING
+
+
+def test_setup_logging_accepts_string_log_level():
+    setup_logging("debug")
+
+    root_logger = logging.getLogger()
+    assert root_logger.level == logging.DEBUG

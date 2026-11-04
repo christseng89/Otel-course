@@ -21,7 +21,7 @@ type RedisClient = Redis;
 export class QueueService {
   private client: RedisClient | null = null;
   private subscriber: RedisClient | null = null;
-  private config: QueueServiceConfig;
+  private readonly config: QueueServiceConfig;
   private readonly queueKey = "translation:queue";
   private readonly resultChannel = "translation:results";
   private readonly sessionKeyPrefix = "translation:session:";
@@ -172,7 +172,7 @@ export class QueueService {
 
     // Parse job data from hash
     for (const [field, value] of Object.entries(data)) {
-      const jobMatch = field.match(/^job:([^:]+):status$/);
+      const jobMatch = /^job:([^:]+):status$/.exec(field);
       if (jobMatch) {
         const lang = jobMatch[1];
         jobs.set(lang, {
@@ -231,8 +231,8 @@ export class QueueService {
 
     // Check if all jobs are done
     const data = await this.client.hgetall(key);
-    const totalJobs = parseInt(data.totalJobs || "0", 10);
-    const completedJobs = parseInt(data.completedJobs || "0", 10);
+    const totalJobs = Number.parseInt(data.totalJobs || "0", 10);
+    const completedJobs = Number.parseInt(data.completedJobs || "0", 10);
 
     if (completedJobs >= totalJobs) {
       await this.client.hset(key, "status", "completed");

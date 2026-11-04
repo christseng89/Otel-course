@@ -7,7 +7,7 @@ export interface SSEConnection {
 }
 
 export class SSEManager {
-  private connections: Map<string, Set<Response>>;
+  private readonly connections: Map<string, Set<Response>>;
 
   constructor() {
     this.connections = new Map();
@@ -126,7 +126,7 @@ export class SSEManager {
       0,
     );
 
-    for (const [sessionId, connections] of this.connections.entries()) {
+    for (const connections of this.connections.values()) {
       for (const res of connections) {
         if (!res.writableEnded) {
           res.end();

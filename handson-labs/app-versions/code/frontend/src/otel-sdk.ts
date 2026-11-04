@@ -16,7 +16,7 @@ export const startOpenTelemetry = (): void => {
     traceExporter: new OTLPTraceExporter(),
     metricReader: new PeriodicExportingMetricReader({
       exporter: new OTLPMetricExporter(),
-      exportIntervalMillis: parseInt(
+      exportIntervalMillis: Number.parseInt(
         process.env.OTEL_METRIC_EXPORT_INTERVAL || "60000",
         10,
       ),

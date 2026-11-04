@@ -26,10 +26,12 @@ services:
       # Mount source code for hot reload
       - ./worker/src:/app/src:ro
       # Preserve translation models (large, slow to download)
-      - worker-models:/root/.local/share/argos-translate
+      - worker-models:/app/.local/share/argos-translate
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=debug
+      - OTEL_SERVICE_NAME=translation-worker
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
     command: watchmedo auto-restart --directory=./src --pattern="*.py" --recursive -- python -m src.main
 
 volumes:

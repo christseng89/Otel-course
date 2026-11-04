@@ -5,7 +5,13 @@ from collections.abc import Mapping, MutableMapping
 from opentelemetry import context, metrics, propagate, trace
 from opentelemetry.context import Context
 from opentelemetry.metrics import Meter
-from opentelemetry.trace import Status, Span, SpanKind, SpanStatusCode, Tracer
+from opentelemetry.trace import (
+    Span,
+    SpanKind,
+    Status,
+    StatusCode as SpanStatusCode,
+    Tracer,
+)
 
 __all__ = [
     "Context", "Meter", "Span", "SpanKind", "SpanStatusCode", "Status", "Tracer",

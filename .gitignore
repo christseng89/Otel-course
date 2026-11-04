@@ -367,3 +367,5 @@ kind.exe
 TEST.md
 .deepeval/
 opentelemetry-course/
+sonarqube-backup-20261102-0325/
+.scannerwork/

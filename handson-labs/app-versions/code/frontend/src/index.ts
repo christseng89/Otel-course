@@ -2,9 +2,9 @@ import "./instrumentation.js";
 
 import express from "express";
 import cors from "cors";
-import { dirname, join } from "path";
-import { fileURLToPath } from "url";
-import type { Server } from "http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { Server } from "node:http";
 import { QueueService } from "./services/queue.js";
 import { SSEManager } from "./services/sse.js";
 import { createTranslationRouter } from "./routes/translation.js";
@@ -23,9 +23,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Configuration
-const PORT = parseInt(process.env.PORT || "3000", 10);
+const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 const REDIS_HOST = process.env.REDIS_HOST || "localhost";
-const REDIS_PORT = parseInt(process.env.REDIS_PORT || "6379", 10);
+const REDIS_PORT = Number.parseInt(process.env.REDIS_PORT || "6379", 10);
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3001";
 
 // Global state for graceful shutdown
 let server: Server | null = null;
@@ -38,7 +39,8 @@ async function startServer(): Promise<void> {
     const app = express();
 
     // Middleware
-    app.use(cors());
+    app.disable("x-powered-by");
+    app.use(cors({ origin: CORS_ORIGIN }));
     app.use(express.json());
     app.use(express.static(join(__dirname, "public")));
 
@@ -105,7 +107,7 @@ async function startServer(): Promise<void> {
             sseManager!.sendEvent(result.sessionId, eventType, result);
 
             const session = await queueService!.getSession(result.sessionId);
-            if (session && session.status === "completed") {
+            if (session?.status === "completed") {
               sseManager!.sendEvent(result.sessionId, "session_complete", {
                 sessionId: result.sessionId,
                 status: "completed",
@@ -217,10 +219,12 @@ process.on("unhandledRejection", (reason) => {
 });
 
 // Start the server
-startServer().catch((error) => {
+try {
+  await startServer();
+} catch (error) {
   logger.error("Fatal server error", {
     error: error instanceof Error ? error.message : String(error),
     stack: error instanceof Error ? error.stack : undefined,
   });
   process.exit(1);
-});
+}

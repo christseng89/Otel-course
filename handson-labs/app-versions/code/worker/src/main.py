@@ -10,7 +10,7 @@ from .queue import QueueConsumer
 from .translator import Translator
 from .logger import setup_logging
 
-from .otel_sdk import start_open_telemetry, shutdown_open_telemetry
+from .instrumentation import setup_instrumentation, shutdown_instrumentation
 from .otel_api import (
     SpanKind,
     extract_context,
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Global shutdown flag
 shutdown_flag = False
+TARGET_LANGUAGE_ATTRIBUTE = "translation.target_language"
 
 
 def handle_shutdown(signum: int, frame) -> None:
@@ -46,7 +47,7 @@ def record_translation_duration(
         # Change to ms
         duration_ms,
         attributes={
-            "translation.target_language": target_language,
+            TARGET_LANGUAGE_ATTRIBUTE: target_language,
             "translation.status": status,
         },
     )
@@ -58,7 +59,7 @@ def add_job_total(target_language: str, status: str) -> None:
     jobs_total.add(
         1,
         attributes={
-            "translation.target_language": target_language,
+            TARGET_LANGUAGE_ATTRIBUTE: target_language,
             "translation.status": status,
         },
     )
@@ -69,7 +70,7 @@ def add_active_jobs(amount: int, target_language: str) -> None:
     """Adjust the number of active translation jobs."""
     active_jobs.add(
         amount,
-        attributes={"translation.target_language": target_language},
+        attributes={TARGET_LANGUAGE_ATTRIBUTE: target_language},
     )
 
 
@@ -84,6 +85,173 @@ def publish_result_with_context(
     queue_consumer.publish_result(result)
 
 
+def _unsupported_language_result(
+    span: Any,
+    job_id: str,
+    session_id: str,
+    target_lang: str,
+) -> dict[str, Any]:
+    error_msg = f"Unsupported target language: {target_lang}"
+    logger.error(
+        "Unsupported target language",
+        extra={"target_language": target_lang, "error": error_msg},
+    )
+    set_span_error(span, error_msg)
+    add_job_total(target_lang, "error")
+    return {
+        "jobId": job_id,
+        "sessionId": session_id,
+        "targetLanguage": target_lang,
+        "status": "error",
+        "error": error_msg,
+        "durationMs": 0,
+        "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
+    }
+
+
+def _translate_job(
+    span: Any,
+    translator: Translator,
+    job_id: str,
+    session_id: str,
+    text: str,
+    source_lang: str,
+    target_lang: str,
+    start_time: float,
+) -> dict[str, Any]:
+    logger.info(
+        "Processing translation job",
+        extra={
+            "job_id": job_id,
+            "source_language": source_lang,
+            "target_language": target_lang,
+        },
+    )
+    delay = random.uniform(0.5, 2.0)
+    logger.debug(
+        "Simulating translation latency",
+        extra={"delay_seconds": round(delay, 2)},
+    )
+    time.sleep(delay)
+    translated_text = translator.translate(text, source_lang, target_lang)
+    duration_ms = int((time.time() - start_time) * 1000)
+    record_translation_duration(duration_ms, target_lang, "completed")
+    add_job_total(target_lang, "completed")
+    set_span_attributes(
+        span,
+        {
+            "translation.duration_ms": duration_ms,
+            "trace.id": f"{span.get_span_context().trace_id:032x}",
+        },
+    )
+    set_span_success(span)
+    logger.info(
+        "Translation job completed",
+        extra={
+            "job_id": job_id,
+            "target_language": target_lang,
+            "duration_ms": duration_ms,
+        },
+    )
+    return {
+        "jobId": job_id,
+        "sessionId": session_id,
+        "targetLanguage": target_lang,
+        "translatedText": translated_text,
+        "status": "completed",
+        "durationMs": duration_ms,
+        "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
+    }
+
+
+def _failed_job_result(
+    span: Any,
+    error: Exception,
+    job_id: str,
+    session_id: str,
+    target_lang: str,
+    start_time: float,
+) -> dict[str, Any]:
+    duration_ms = int((time.time() - start_time) * 1000)
+    error_msg = str(error)
+    logger.exception(
+        "Translation job failed",
+        extra={
+            "job_id": job_id,
+            "target_language": target_lang,
+            "error": error_msg,
+        },
+    )
+    set_span_error(span, error)
+    record_translation_duration(duration_ms, target_lang, "error")
+    add_job_total(target_lang, "error")
+    return {
+        "jobId": job_id,
+        "sessionId": session_id,
+        "targetLanguage": target_lang,
+        "status": "error",
+        "error": error_msg,
+        "durationMs": duration_ms,
+        "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
+    }
+
+
+def process_translation_job(
+    job: dict[str, Any],
+    config: Config,
+    translator: Translator,
+    queue_consumer: QueueConsumer,
+) -> None:
+    job_id = job.get("jobId")
+    session_id = job.get("sessionId")
+    text = job.get("text")
+    source_lang = job.get("sourceLanguage", config.source_language)
+    target_lang = job.get("targetLanguage")
+
+    if not all([job_id, session_id, text, target_lang]) or not isinstance(text, str):
+        logger.error("Invalid job data", extra={"job": job})
+        return
+
+    remote_ctx = extract_context(job.get("_traceContext") or {})
+    with tracer.start_as_current_span(
+        f"process_translation_job - {target_lang}",
+        context=remote_ctx,
+        kind=SpanKind.CONSUMER,
+        attributes={
+            "translation.job_id": job_id,
+            "translation.session_id": session_id,
+            TARGET_LANGUAGE_ATTRIBUTE: target_lang,
+            "translation.text_length": len(text),
+        },
+    ) as span:
+        start_time = time.time()
+        add_active_jobs(1, target_lang)
+        try:
+            if target_lang not in config.supported_languages:
+                result = _unsupported_language_result(
+                    span, job_id, session_id, target_lang
+                )
+            else:
+                result = _translate_job(
+                    span,
+                    translator,
+                    job_id,
+                    session_id,
+                    text,
+                    source_lang,
+                    target_lang,
+                    start_time,
+                )
+        except Exception as error:
+            result = _failed_job_result(
+                span, error, job_id, session_id, target_lang, start_time
+            )
+        finally:
+            add_active_jobs(-1, target_lang)
+
+        publish_result_with_context(queue_consumer, result)
+
+
 def main() -> None:
     """Main worker loop."""
     global shutdown_flag
@@ -93,7 +261,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_shutdown)
 
     # Change here Initialise OpenTelemetry before anything else
-    start_open_telemetry()
+    setup_instrumentation()
 
     # Load configuration
     config = Config.from_env()
@@ -140,163 +308,13 @@ def main() -> None:
                 if job is None:
                     continue
 
-                # Extract job details
-                job_id = job.get("jobId")
-                session_id = job.get("sessionId")
-                text = job.get("text")
-                source_lang = job.get("sourceLanguage", config.source_language)
-                target_lang = job.get("targetLanguage")
-
-                if not all([job_id, session_id, text, target_lang]):
-                    logger.error("Invalid job data", extra={"job": job})
-                    continue
-
-                # Context Propagation
-                # Extract the W3C trace context injected by the frontend.
-                # Missing or malformed context produces a background context,
-                # so the worker still processes the job as a new root trace.
-                remote_ctx = extract_context(job.get("_traceContext") or {})
-
-                with tracer.start_as_current_span(
-                    f"process_translation_job - {target_lang}",
-                    context=remote_ctx,
-                    kind=SpanKind.CONSUMER,
-                    attributes={
-                        "translation.job_id": job_id,
-                        "translation.session_id": session_id,
-                        "translation.target_language": target_lang,
-                        "translation.text_length": len(text) if text else 0,
-                    },
-                ) as span:
-                    # Custom Metrics
-                    start_time = time.time()
-                    add_active_jobs(1, target_lang)
-                    try:
-                        # Validate target language
-                        if target_lang not in config.supported_languages:
-                            error_msg = f"Unsupported target language: {target_lang}"
-                            logger.error(
-                                "Unsupported target language",
-                                extra={
-                                    "target_language": target_lang,
-                                    "error": error_msg,
-                                },
-                            )
-                            set_span_error(span, error_msg)
-                            # Custom Metrics
-                            duration_ms = int((time.time() - start_time) * 1000)
-                            record_translation_duration(
-                                duration_ms, target_lang, "error"
-                            )
-                            add_job_total(target_lang, "error")
-                            result = {
-                                "jobId": job_id,
-                                "sessionId": session_id,
-                                "targetLanguage": target_lang,
-                                "status": "error",
-                                "error": error_msg,
-                                # Custom Metrics
-                                "durationMs": duration_ms,
-                                "completedAt": datetime.now(timezone.utc).isoformat()
-                                + "Z",
-                            }
-                        # Custom Metrics
-                        else:
-                            # Translate
-                            # Ensure text is not None
-                            assert text is not None
-                            logger.info(
-                                "Processing translation job",
-                                extra={
-                                    "job_id": job_id,
-                                    "source_language": source_lang,
-                                    "target_language": target_lang,
-                                },
-                            )
-
-                            # Simulate realistic API latency (0.5-2 seconds)
-                            delay = random.uniform(0.5, 2.0)
-                            logger.debug(
-                                "Simulating translation latency",
-                                extra={"delay_seconds": round(delay, 2)},
-                            )
-                            time.sleep(delay)
-
-                            translated_text = translator.translate(
-                                text, source_lang, target_lang
-                            )
-                            duration_ms = int((time.time() - start_time) * 1000)
-                            # Custom Metrics
-                            record_translation_duration(
-                                duration_ms, target_lang, "completed"
-                            )
-                            add_job_total(target_lang, "completed")
-                            # Context Propagation
-                            set_span_attributes(
-                                span,
-                                {
-                                    "translation.duration_ms": duration_ms,
-                                    "trace.id": f"{span.get_span_context().trace_id:032x}",
-                                },
-                            )
-                            set_span_success(span)
-
-                            result = {
-                                "jobId": job_id,
-                                "sessionId": session_id,
-                                "targetLanguage": target_lang,
-                                "translatedText": translated_text,
-                                "status": "completed",
-                                "durationMs": duration_ms,
-                                "completedAt": datetime.now(timezone.utc).isoformat()
-                                + "Z",
-                            }
-
-                            logger.info(
-                                "Translation job completed",
-                                extra={
-                                    "job_id": job_id,
-                                    "target_language": target_lang,
-                                    "duration_ms": duration_ms,
-                                },
-                            )
-
-                    except Exception as e:
-                        duration_ms = int((time.time() - start_time) * 1000)
-                        error_msg = str(e)
-                        logger.error(
-                            "Translation job failed",
-                            extra={
-                                "job_id": job_id,
-                                "target_language": target_lang,
-                                "error": error_msg,
-                            },
-                        )
-                        set_span_error(span, e)
-                        # Custom Metrics
-                        record_translation_duration(duration_ms, target_lang, "error")
-                        add_job_total(target_lang, "error")
-                        result = {
-                            "jobId": job_id,
-                            "sessionId": session_id,
-                            "targetLanguage": target_lang,
-                            "status": "error",
-                            "error": error_msg,
-                            "durationMs": duration_ms,
-                            "completedAt": datetime.now(timezone.utc).isoformat() + "Z",
-                        }
-                    # Custom Metrics
-                    finally:
-                        add_active_jobs(-1, target_lang)
-
-                    # Publish result
-                    publish_result_with_context(queue_consumer, result)
+                process_translation_job(job, config, translator, queue_consumer)
 
             except KeyboardInterrupt:
                 logger.info("Keyboard interrupt received")
                 break
             except Exception as e:
-                logger.error(
+                logger.exception(
                     "Error processing job",
                     extra={"error": str(e)},
                     exc_info=True,
@@ -307,7 +325,7 @@ def main() -> None:
         logger.info("Worker shutting down...")
 
     except Exception as e:
-        logger.error("Fatal worker error", extra={"error": str(e)}, exc_info=True)
+        logger.exception("Fatal worker error", extra={"error": str(e)})
         sys.exit(1)
 
     finally:
@@ -316,14 +334,14 @@ def main() -> None:
             try:
                 queue_consumer.disconnect()
             except Exception as e:
-                logger.error(
+                logger.exception(
                     "Error disconnecting from Redis",
                     extra={"error": str(e)},
                     exc_info=True,
                 )
 
         logger.info("Worker stopped")
-        shutdown_open_telemetry()
+        shutdown_instrumentation()
 
 
 if __name__ == "__main__":

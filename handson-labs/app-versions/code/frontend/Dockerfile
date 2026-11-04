@@ -30,6 +30,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/src/public ./dist/public
 
+# Run the application as the non-root node user.
+RUN chown -R node:node /app
+USER node
+
 # Expose port
 EXPOSE 3000
 
