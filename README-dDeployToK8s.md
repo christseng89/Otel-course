@@ -89,3 +89,25 @@ flowchart TB
 **最重要的觀念：不只是成功部署 Kubernetes Resources，而是必須驗證 Application → OpenTelemetry → Observability Backends 的完整資料流。**
 
 ---
+# k8s Deployment
+
+Refer to 
+- `lab-implement-app-manifests.md`
+- `lab-implement-observability-manifests.md`
+- `lab-setup-kustomize.md`
+- `lab-explore-manifests.md`
+- `lab-k8s-deploy.md`
+- `lab-verify-telemetry.md`
+
+```prompt
+Refer to the handson-labs folder there are 
+
+- Docker Compose for 
+  - OpenTelemetry
+  - App
+    - Frontend to use Otel
+    - Backend to use Otel
+
+I need to migrate the above mentioned into a k8s environment via Helm (for staging as well). Just give me a proposed plan of doing it first with NO Code Changes.  For the Otel refer to the official document.
+
+```
