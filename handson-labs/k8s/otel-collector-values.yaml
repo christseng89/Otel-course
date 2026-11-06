@@ -46,9 +46,10 @@ config:
   extensions:
     health_check: { endpoint: "${env:MY_POD_IP}:13133" }
   receivers:
-    jaeger: null
-    prometheus: null
-    zipkin: null
+  # Bug fixed
+    # jaeger: null
+    # prometheus: null
+    # zipkin: null
     otlp:
       protocols:
         grpc: { endpoint: "${env:MY_POD_IP}:4317" }
@@ -57,7 +58,8 @@ config:
     memory_limiter: { check_interval: 1s, limit_mib: 512 }
     batch: { timeout: 1s, send_batch_size: 1024 }
   exporters:
-    debug: null
+  # Bug fixed
+    # debug: null
     otlp_grpc/tempo:
       endpoint: tempo.observability.svc.cluster.local:4317
       tls: { insecure: true }
@@ -71,7 +73,11 @@ config:
         readers:
           - pull:
               exporter:
-                prometheus: { host: "${env:MY_POD_IP}", port: 8888 }
+              # Bug fixed
+                prometheus:
+                  host: "${env:MY_POD_IP}"
+                  port: 8888
+                  without_type_suffix: false
     extensions: [health_check]
     pipelines:
       traces:

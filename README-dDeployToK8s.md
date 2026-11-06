@@ -111,3 +111,117 @@ Refer to the handson-labs folder there are
 I need to migrate the above mentioned into a k8s environment via Helm (for staging as well). Just give me a proposed plan of doing it first with NO Code Changes.  For the Otel refer to the official document.
 
 ```
+
+----
+
+# Verify Metrics, Logs and Traces
+
+- Refer to `lab-verify-telemetry.md`
+
+## Part 1 — Verify metrics in Prometheus
+
+Open the Prometheus UI at `http://prometheus.test.com:9080`.
+
+### 1. Confirm the OTel Collector pipeline is healthy
+
+In **Status → Targets**, find the `otel-collector` job and verify it shows `UP`. Then check that all three signals are flowing through the Collector:
+
+```promql
+rate(otelcol_receiver_accepted_spans_total[15m])
+rate(otelcol_receiver_accepted_metric_points_total[15m])
+rate(otelcol_receiver_accepted_log_records[15m])
+```
+
+The Collector exposes the log-record counter without `_total` in this
+deployment, so use the exact metric name shown above. All three should be
+non-zero after traffic has been generated. If any query returns no series,
+first check the Collector scrape target and then confirm that the application
+Deployment manifests use
+`otel-collector.observability.svc.cluster.local:4318` as the OTLP endpoint.
+
+### 2. Frontend request and validation error rates
+
+```promql
+# Per-second translation request rate
+rate(translation_requests_total{exported_job="translation-frontend"}[15m])
+
+# Validation errors by error type (should spike after the invalid requests above)
+translation_validation_errors_total{exported_job="translation-frontend"}
+```
+
+### 3. Worker job outcomes by language and status
+
+```promql
+sum by (translation_target_language, translation_status) (
+  translation_jobs_total{exported_job="translation-worker"}
+)
+```
+
+You should see `status="completed"` entries for `es`, `fr`, and `de`.
+
+### 4. 95th percentile translation duration
+
+```promql
+histogram_quantile(
+  0.95,
+  rate(translation_duration_milliseconds_bucket{exported_job="translation-worker"}[5m])
+)
+```
+
+> **Note on metric names:** The OTel Collector's Prometheus exporter converts dots to underscores and appends the unit suffix. `translation.duration` with unit `ms` becomes `translation_duration_milliseconds`.
+
+---
+
+## Part 2 — Verify logs in Loki
+
+Open Grafana at `http://grafana.test.com:9080`, navigate to **Explore**, and select the **Loki** data source.
+
+### 1. Confirm logs from both services
+
+```logql
+{service_name="translation-frontend"} | json
+```
+
+```logql
+{service_name="translation-worker"} | json
+```
+
+Both should return structured JSON entries. If either returns nothing, check that the OTel Collector log pipeline is receiving data (step 1 above).
+
+### 2. Filter for warnings and errors across all services
+
+```logql
+{service_name=~"translation-.*"} | json | severity_text=~"(?i)warn|error"
+```
+
+The invalid requests from the traffic loop above should have produced warning entries in the frontend logs.
+
+### 3. Trace a specific session across both services
+
+Copy a `session_id` from any frontend log entry, then filter both services down to that session:
+
+```logql
+{service_name="translation-frontend"} | json | session_id="42dfea54-2e95-4f5d-a1ab-4a5e59c1cd09"
+```
+
+Click the `trace_id` field on any log line — if Tempo is wired up as a data source in Grafana, a direct link to the trace will appear.
+
+---
+
+## Part 3 — Verify traces in Tempo
+
+### 1. Find a recent trace
+
+In Grafana Explore, switch to the **Tempo** data source. Use **Search** mode with:
+
+- **Service name**: `translation-frontend`
+- **Span name**: `create_translation_session`
+
+Click any result to open the flame graph. Verify that:
+
+- Child spans `validate_request` and `enqueue_translation_jobs` appear under the root.
+- The worker span `process_translation_job` appears as a child, confirming cross-service context propagation over Redis.
+
+If the worker span is a separate root trace instead of a child, context propagation is broken — review the `_traceContext` injection in the frontend and `propagate.extract()` in the worker.
+
+---

@@ -152,10 +152,13 @@ all three signals are flowing through the Collector:
 ```promql
 rate(otelcol_receiver_accepted_spans_total[5m])
 rate(otelcol_receiver_accepted_metric_points_total[5m])
-rate(otelcol_receiver_accepted_log_records_total[5m])
+rate(otelcol_receiver_accepted_log_records[5m])
 ```
 
-All three should be non-zero. If any reads zero, check that the Deployment manifests use `otel-collector.observability.svc.cluster.local:4318` as the OTLP endpoint.
+The deployed Collector exposes the log-record counter without `_total`, so
+use the exact name above. All three should be non-zero after traffic has been
+generated. If any reads zero, check that the Deployment manifests use
+`otel-collector.observability.svc.cluster.local:4318` as the OTLP endpoint.
 
 **2. Frontend request and validation error rates**
 
