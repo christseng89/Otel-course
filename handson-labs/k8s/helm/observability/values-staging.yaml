@@ -1,0 +1,17 @@
+storage:
+  className: hostpath
+  prometheusSize: 2Gi
+  lokiSize: 2Gi
+  tempoSize: 2Gi
+  grafanaSize: 512Mi
+grafana:
+  adminPassword: ""
+tempo:
+  retention: 24h
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

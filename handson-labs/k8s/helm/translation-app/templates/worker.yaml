@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: worker }
+spec:
+  replicas: {{ .Values.replicas.worker }}
+  selector: { matchLabels: { app.kubernetes.io/name: worker } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: worker } }
+    spec:
+      containers:
+        - name: worker
+          image: {{ .Values.images.worker }}
+          env:
+            - { name: REDIS_HOST, value: redis }
+            - { name: REDIS_PORT, value: "6379" }
+            - { name: QUEUE_KEY, value: "translation:queue" }
+            - { name: RESULT_CHANNEL, value: "translation:results" }
+            - { name: LOG_LEVEL, value: info }
+            - { name: SOURCE_LANGUAGE, value: en }
+            - { name: SUPPORTED_LANGUAGES, value: "es,fr,de" }
+            - { name: OTEL_SERVICE_NAME, value: translation-worker }
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ .Values.otelEndpoint | quote }} }

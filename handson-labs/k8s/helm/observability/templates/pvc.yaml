@@ -1,0 +1,32 @@
+{{- $class := .Values.storage.className }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: prometheus-data }
+spec:
+  accessModes: [ReadWriteOnce]
+  {{ if $class }}storageClassName: {{ $class | quote }}{{ end }}
+  resources: { requests: { storage: {{ .Values.storage.prometheusSize }} } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: loki-data }
+spec:
+  accessModes: [ReadWriteOnce]
+  {{ if $class }}storageClassName: {{ $class | quote }}{{ end }}
+  resources: { requests: { storage: {{ .Values.storage.lokiSize }} } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: tempo-data }
+spec:
+  accessModes: [ReadWriteOnce]
+  {{ if $class }}storageClassName: {{ $class | quote }}{{ end }}
+  resources: { requests: { storage: {{ .Values.storage.tempoSize }} } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: grafana-data }
+spec:
+  accessModes: [ReadWriteOnce]
+  {{ if $class }}storageClassName: {{ $class | quote }}{{ end }}
+  resources: { requests: { storage: {{ .Values.storage.grafanaSize }} } }

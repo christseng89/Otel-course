@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: loki }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector: { matchLabels: { app.kubernetes.io/name: loki } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: loki }
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: loki
+          image: {{ .Values.images.loki }}
+          args: [-config.file=/etc/loki/loki.yaml, -target=all]
+          ports: [{ name: http, containerPort: 3100 }]
+          startupProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - { name: config, mountPath: /etc/loki/loki.yaml, subPath: loki-config.yaml }
+            - { name: data, mountPath: /loki }
+            - { name: wal, mountPath: /wal }
+      volumes:
+        - { name: config, configMap: { name: loki-config } }
+        - { name: data, persistentVolumeClaim: { claimName: loki-data } }
+        - { name: wal, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: loki }
+spec:
+  selector: { app.kubernetes.io/name: loki }
+  ports: [{ name: http, port: 3100, targetPort: http }]

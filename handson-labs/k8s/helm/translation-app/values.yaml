@@ -1,0 +1,10 @@
+images:
+  frontend: lmacademy/web-translator-frontend:v1.1.0
+  worker: lmacademy/web-translator-worker:v1.1.0
+  redis: redis:8.6.0-alpine
+  redisExporter: oliver006/redis_exporter:v1.81.0-alpine
+replicas:
+  frontend: 1
+  worker: 1
+  redis: 1
+otelEndpoint: http://otel-collector.observability.svc.cluster.local:4318

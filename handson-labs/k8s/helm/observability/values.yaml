@@ -1,0 +1,23 @@
+images:
+  prometheus: prom/prometheus:v3.9.1
+  loki: grafana/loki:3.6.6
+  tempo: grafana/tempo:2.10.1
+  grafana: grafana/grafana:12.3
+  kubeStateMetrics: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.18.0
+storage:
+  className: ""
+  prometheusSize: 10Gi
+  lokiSize: 10Gi
+  tempoSize: 10Gi
+  grafanaSize: 1Gi
+grafana:
+  adminPassword: change-me
+tempo:
+  retention: 72h
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

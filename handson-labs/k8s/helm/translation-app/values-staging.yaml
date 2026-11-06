@@ -1,0 +1,3 @@
+images:
+  frontend: christseng89/web-translator-frontend:v1.3
+  worker: christseng89/web-translator-worker:v1.3
